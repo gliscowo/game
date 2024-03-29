@@ -1,0 +1,43 @@
+name: game
+description: A sample command-line application.
+version: 1.0.0
+# repository: https://github.com/my_org/my_repo
+
+publish_to: none
+
+dependency_overrides: 
+  analyzer: ^6.4.1
+
+environment:
+  sdk: ^3.3.0
+
+dependencies:
+  bidi: ^2.0.6
+  ffi: ^2.1.0
+  dart_glfw: 
+    git:
+      url: 'https://github.com/gliscowo/dart_glfw.git'
+      ref: 7b082a7
+  dart_opengl:
+    git:
+      url: 'https://github.com/gliscowo/dart_opengl.git'
+      ref: 443eeb7
+  # diamond_gl:
+  #   path: ../diamond_gl
+  diamond_gl:
+    git: 
+      url: 'https://github.com/gliscowo/diamond_gl.git'
+      ref: 47062d8
+  logging: ^1.1.0
+  meta: ^1.9.0
+  path: ^1.8.3
+  vector_math: ^2.1.4
+  image: ^4.1.7
+  dartemis: ^0.9.9
+  fast_noise: ^2.0.0
+
+dev_dependencies:
+  build_runner: ^2.4.8
+  dartemis_builder: ^0.3.1
+  lints: ^3.0.0
+  test: ^1.24.0

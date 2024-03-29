@@ -1,0 +1,12 @@
+{
+	"Generated System": {
+		"scope": "dart",
+		"prefix": "gen_system",
+		"body": [
+			"@Generate($2)",
+			"class $1System extends _$$1System {",
+			"}"
+		],
+		"description": "Log output to console"
+	}
+}
