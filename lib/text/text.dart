@@ -1,6 +1,5 @@
 import 'dart:ffi';
 
-import 'package:bidi/bidi.dart';
 import 'package:diamond_gl/diamond_gl.dart';
 import 'package:ffi/ffi.dart';
 import 'package:vector_math/vector_math_64.dart';
@@ -51,7 +50,7 @@ class Text {
 
       final buffer = harfbuzz.buffer_create();
 
-      final bufferContent = String.fromCharCodes(logicalToVisual(segment.content)).toNativeUtf16();
+      final bufferContent = /*String.fromCharCodes(logicalToVisual(*/ segment.content /*))*/ .toNativeUtf16();
       harfbuzz.buffer_add_utf16(buffer, bufferContent.cast(), -1, 0, -1);
       malloc.free(bufferContent);
 

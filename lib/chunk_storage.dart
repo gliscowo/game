@@ -4,6 +4,7 @@ import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:fast_noise/fast_noise.dart';
+import 'package:logging/logging.dart';
 import 'package:vector_math/vector_math.dart';
 
 import 'math.dart';
@@ -23,7 +24,7 @@ class DiscretePosition {
   Vector3 toVec3() => Vector3(x.toDouble(), y.toDouble(), z.toDouble());
 
   @override
-  int get hashCode => Object.hashAll([x, y, z]);
+  int get hashCode => (y + z * 31) * 31 + x;
   @override
   bool operator ==(Object other) => other is DiscretePosition && x == other.x && y == other.y && z == other.z;
 }
@@ -50,19 +51,34 @@ class Chunk {
 enum ChunkStatus { empty, scheduled, loaded }
 
 class ChunkStorage {
-  final Map<DiscretePosition, Chunk> _chunks = {};
-  final Set<DiscretePosition> _scheduledChunks = {};
+  static final _logger = Logger('game.chunk_storage');
+
+  final Map<DiscretePosition, Chunk> _chunks = HashMap();
+  final Set<DiscretePosition> _scheduledChunks = HashSet();
 
   void generate(List<ChunkGenWorker> workers, int radius, int verticalRange) {
     var workerIndex = 0;
     iterateRingColumns(radius, verticalRange, (chunkPos) {
       workerIndex = (workerIndex + 1) % workers.length;
 
-      _scheduledChunks.add(chunkPos);
-      workers[workerIndex].enqueueChunk(chunkPos, (chunk) {
-        _chunks[chunkPos] = chunk;
-        _scheduledChunks.remove(chunkPos);
-      });
+      _enqueue(workers[workerIndex], chunkPos);
+    });
+  }
+
+  void scheduleChunk(ChunkGenWorker worker, DiscretePosition pos) {
+    if (statusAt(pos) != ChunkStatus.empty) {
+      _logger.warning('Tried to schedule ${statusAt(pos).name} chunk for generation again');
+      return;
+    }
+
+    _enqueue(worker, pos);
+  }
+
+  void _enqueue(ChunkGenWorker worker, DiscretePosition chunkPos) {
+    _scheduledChunks.add(chunkPos);
+    worker.enqueueChunk(chunkPos, (chunk) {
+      _chunks[chunkPos] = chunk;
+      _scheduledChunks.remove(chunkPos);
     });
   }
 
@@ -157,10 +173,12 @@ class SliceChunk implements Chunk {
 }
 
 class ChunkGenWorker {
-  final Queue<void Function(Chunk)> _callbacks = Queue();
+  final Map<int, void Function(Chunk)> _callbacks = {};
   final SendPort _commands;
   final ReceivePort _responses;
   final Isolate _isolate;
+
+  int _nextKey = 0;
 
   ChunkGenWorker._(this._commands, this._responses, this._isolate) {
     _responses.listen((message) => _handleResponse(message));
@@ -181,14 +199,15 @@ class ChunkGenWorker {
   }
 
   void _handleResponse(Object message) {
-    if (message is Chunk) {
-      _callbacks.removeFirst().call(message);
+    if (message case (int key, Chunk chunk)) {
+      _callbacks.remove(key)!.call(chunk);
     }
   }
 
   void enqueueChunk(DiscretePosition basePos, void Function(Chunk) callback) {
-    _commands.send(basePos);
-    _callbacks.add(callback);
+    final key = _nextKey++;
+    _commands.send((key, basePos));
+    _callbacks[key] = callback;
   }
 
   void shutdown() {
@@ -200,9 +219,10 @@ class ChunkGenWorker {
     final commands = ReceivePort();
     responses.send(commands.sendPort);
 
-    commands.listen((basePos) {
-      if (basePos is! DiscretePosition) return;
-      responses.send(_generateChunk(basePos));
+    commands.listen((message) {
+      if (message case (int key, DiscretePosition basePos)) {
+        responses.send((key, _generateChunk(basePos)));
+      }
     });
   }
 

@@ -10,11 +10,11 @@ import 'package:ffi/ffi.dart';
 import 'package:game/chunk_storage.dart';
 import 'package:game/components/camera.dart';
 import 'package:game/components/chunk.dart';
+import 'package:game/components/debug.dart';
 import 'package:game/components/fysik.dart';
 import 'package:game/components/transform.dart';
 import 'package:game/context.dart';
 import 'package:game/game.dart';
-import 'package:game/input.dart';
 import 'package:game/math.dart';
 import 'package:game/obj.dart';
 import 'package:game/text/text.dart';
@@ -110,18 +110,23 @@ Future<void> main(List<String> arguments) async {
   glfw.makeContextCurrent(window.handle);
 
   final world = World();
-  world.addSystem(CameraControlSystem(InputProvider(window)), group: renderGroup);
+  final tags = TagManager();
+  world.addManager(tags);
+  world.addManager(ChunkManager());
+
+  // world.addSystem(CameraControlSystem(InputProvider(window)), group: renderGroup);
+  world.addSystem(DebugCameraMovementSystem(), group: renderGroup);
   world.addSystem(ChunkRenderSystem(renderContext, chunkCompilers), group: renderGroup);
+  world.addSystem(ChunkLoadingSystem(chunkGenWorkers), group: renderGroup);
   world.addSystem(VelocitySystem(), group: logicGroup);
   world.addSystem(AirDragSystem(), group: logicGroup);
   world.chunks = ChunkStorage();
 
-  final tags = TagManager();
-  world.addManager(tags);
+  world.initialize();
 
   tags.register(
     world.createEntity([
-      Position(x: 0, y: 200, z: 0),
+      Position(x: 0, y: 64, z: 0),
       Velocity(),
       Orientation(pitch: -90 * degrees2Radians),
       CameraConfiguration(),
@@ -209,8 +214,6 @@ Future<void> main(List<String> arguments) async {
     ..vertex(Vector3(15, 15, 0), 1, 1, Color.white)
     ..vertex(Vector3(15, 0, 0), 1, 0, Color.white)
     ..upload();
-
-  world.initialize();
 
   var frames = 0, lastFps = 0;
   var ticks = 0, lastTicks = 0;

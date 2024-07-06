@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:collection';
 import 'dart:io';
 import 'dart:isolate';
 
@@ -10,6 +9,7 @@ import 'package:vector_math/vector_math.dart';
 import '../chunk_storage.dart';
 import '../context.dart';
 import '../game.dart';
+import '../math.dart';
 import '../obj.dart';
 import '../texture.dart';
 import '../vertex_descriptors.dart';
@@ -27,6 +27,91 @@ enum ChunkMeshState { empty, building, ready }
 class ChunkMeshComponent extends Component {
   MeshBuffer<TerrainVertexFunction>? buffer;
   ChunkMeshState state = ChunkMeshState.empty;
+}
+
+class ChunkManager extends Manager {
+  final Map<DiscretePosition, int> _chunkEntitiesByPosition = {};
+  late final Mapper<ChunkDataComponent> _dataMapper;
+
+  @override
+  void initialize() {
+    _dataMapper = Mapper(world);
+  }
+
+  @override
+  void added(int entity) {
+    final data = _dataMapper.getSafe(entity);
+    if (data == null) return;
+
+    _chunkEntitiesByPosition[data.pos] = entity;
+  }
+
+  @override
+  void deleted(int entity) {
+    final data = _dataMapper.getSafe(entity);
+    if (data == null) return;
+
+    _chunkEntitiesByPosition.remove(data.pos);
+  }
+
+  int? entityForChunk(DiscretePosition chunkPos) => _chunkEntitiesByPosition[chunkPos];
+}
+
+@Generate(
+  IntervalEntityProcessingSystem,
+  allOf: [Position, ChunkDataComponent, ChunkMeshComponent],
+  manager: [ChunkManager, TagManager],
+)
+class ChunkLoadingSystem extends _$ChunkLoadingSystem {
+  final List<ChunkGenWorker> _genWorkers;
+  int _workerIndex = 0;
+
+  ChunkLoadingSystem(this._genWorkers) : super(.5);
+
+  @override
+  void processEntity(int entity) {
+    final pos = positionMapper[entity].value;
+    final cameraPos = positionMapper[tagManager.getEntity('active_camera')!].value;
+
+    const maxHorizontal = 16 * 14;
+    const maxVertical = 16 * 5;
+    if ((pos.x - cameraPos.x).abs() < maxHorizontal &&
+        (pos.z - cameraPos.z).abs() < maxHorizontal &&
+        (pos.y - cameraPos.y).abs() < maxVertical) return;
+
+    chunkMeshComponentMapper[entity].buffer?.delete();
+    world.deleteEntity(entity);
+  }
+
+  @override
+  void process() {
+    super.process();
+
+    final cameraPos = positionMapper[tagManager.getEntity('active_camera')!].value;
+    final chunks = world.chunks;
+
+    iterateRingColumns(12, 4, (chunkPos) {
+      chunkPos = chunkPos.offset(
+        x: (cameraPos.x / 16).toInt(),
+        y: (cameraPos.y / 16).toInt(),
+        z: (cameraPos.z / 16).toInt(),
+      );
+
+      if (chunkManager.entityForChunk(chunkPos) != null) return;
+
+      final status = chunks.statusAt(chunkPos);
+      if (status == ChunkStatus.empty) {
+        _workerIndex = (_workerIndex + 1) % _genWorkers.length;
+        chunks.scheduleChunk(_genWorkers[_workerIndex], chunkPos);
+      } else if (status == ChunkStatus.loaded) {
+        world.createEntity([
+          Position(x: 16.0 * chunkPos.x, y: 16.0 * chunkPos.y, z: 16.0 * chunkPos.z),
+          ChunkDataComponent(chunkPos),
+          ChunkMeshComponent(),
+        ]);
+      }
+    });
+  }
 }
 
 @Generate(
@@ -96,10 +181,12 @@ class ChunkRenderSystem extends _$ChunkRenderSystem {
 class ChunkCompileWorker {
   static final cube = loadObj(File("resources/cube.obj"));
 
-  final Queue<void Function(BufferWriter)> _callbacks = Queue();
+  final Map<int, void Function(BufferWriter)> _callbacks = {};
   final SendPort _commands;
   final ReceivePort _responses;
   final Isolate _isolate;
+
+  int _nextKey = 0;
 
   ChunkCompileWorker._(this._commands, this._responses, this._isolate) {
     _responses.listen((message) => _handleResponse(message));
@@ -120,14 +207,15 @@ class ChunkCompileWorker {
   }
 
   void _handleResponse(Object message) {
-    if (message is BufferWriter) {
-      _callbacks.removeFirst().call(message);
+    if (message case (int key, BufferWriter buffer)) {
+      _callbacks.remove(key)!.call(buffer);
     }
   }
 
   void enqueueChunk(ChunkStorage storage, void Function(BufferWriter) callback) {
-    _commands.send(storage);
-    _callbacks.add(callback);
+    final key = _nextKey++;
+    _commands.send((key, storage));
+    _callbacks[key] = callback;
   }
 
   void shutdown() {
@@ -141,9 +229,10 @@ class ChunkCompileWorker {
     final commands = ReceivePort();
     responses.send(commands.sendPort);
 
-    commands.listen((storage) {
-      if (storage is! ChunkStorage) return;
-      responses.send(_compileChunk(storage));
+    commands.listen((message) {
+      if (message case (int key, ChunkStorage storage)) {
+        responses.send((key, _compileChunk(storage)));
+      }
     });
   }
 
