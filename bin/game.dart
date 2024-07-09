@@ -15,7 +15,6 @@ import 'package:game/components/fysik.dart';
 import 'package:game/components/transform.dart';
 import 'package:game/context.dart';
 import 'package:game/game.dart';
-import 'package:game/math.dart';
 import 'package:game/obj.dart';
 import 'package:game/text/text.dart';
 import 'package:game/text/text_renderer.dart';
@@ -90,7 +89,7 @@ Future<void> main(List<String> arguments) async {
     vSync = !vSync;
   });
 
-  window.toggleFullscreen();
+  // window.toggleFullscreen();
   window.onKey.where((event) => event.key == glfwKeyF11 && event.action == glfwPress).listen((event) {
     window.toggleFullscreen();
   });
@@ -104,7 +103,7 @@ Future<void> main(List<String> arguments) async {
   // glisco, 29.03.2024
   glfw.makeContextCurrent(nullptr);
   final (chunkCompilers, chunkGenWorkers) = await (
-    Future.wait(List.generate(min(Platform.numberOfProcessors ~/ 2, 8), ChunkCompileWorker.spawn)),
+    createChunkCompileWorkers(min(Platform.numberOfProcessors ~/ 2, 8)),
     Future.wait(List.generate(min(Platform.numberOfProcessors ~/ 2, 8), ChunkGenWorker.spawn))
   ).wait;
   glfw.makeContextCurrent(window.handle);
@@ -117,7 +116,7 @@ Future<void> main(List<String> arguments) async {
   // world.addSystem(CameraControlSystem(InputProvider(window)), group: renderGroup);
   world.addSystem(DebugCameraMovementSystem(), group: renderGroup);
   world.addSystem(ChunkRenderSystem(renderContext, chunkCompilers), group: renderGroup);
-  world.addSystem(ChunkLoadingSystem(chunkGenWorkers), group: renderGroup);
+  world.addSystem(ChunkLoadingSystem(chunkGenWorkers), group: logicGroup);
   world.addSystem(VelocitySystem(), group: logicGroup);
   world.addSystem(AirDragSystem(), group: logicGroup);
   world.chunks = ChunkStorage();
@@ -126,7 +125,7 @@ Future<void> main(List<String> arguments) async {
 
   tags.register(
     world.createEntity([
-      Position(x: 0, y: 64, z: 0),
+      Position(x: 0, y: 48, z: 0),
       Velocity(),
       Orientation(pitch: -90 * degrees2Radians),
       CameraConfiguration(),
@@ -134,25 +133,18 @@ Future<void> main(List<String> arguments) async {
     "active_camera",
   );
 
-  world.chunks.generate(chunkGenWorkers, 12, 4);
-  iterateRingColumns(12, 4, (chunkPos) {
-    world.createEntity([
-      Position(x: 16.0 * chunkPos.x, y: 16.0 * chunkPos.y, z: 16.0 * chunkPos.z),
-      ChunkDataComponent(chunkPos),
-      ChunkMeshComponent(),
-    ]);
-  });
-  // for (var x = -12; x <= 12; x++) {
-  //   for (var y = -4; y <= 4; y++) {
-  //     for (var z = -12; z <= 12; z++) {
-  //       world.createEntity([
-  //         Position(x: 16.0 * x, y: y * 16.0, z: 16.0 * z),
-  //         ChunkDataComponent(DiscretePosition(x, y, z)),
-  //         ChunkMeshComponent(),
-  //       ]);
-  //     }
-  //   }
-  // }
+  // world.chunks.generate(chunkGenWorkers, 12, 4);
+  // iterateRingColumns(12, 4, (chunkPos) {
+  //   world.createEntity([
+  //     Position(
+  //       x: Chunk.size * chunkPos.x.toDouble(),
+  //       y: Chunk.size * chunkPos.y.toDouble(),
+  //       z: Chunk.size * chunkPos.z.toDouble(),
+  //     ),
+  //     ChunkDataComponent(chunkPos),
+  //     ChunkMeshComponent(),
+  //   ]);
+  // });
 
   final cameraMapper = Mapper<CameraConfiguration>(world), posMapper = Mapper<Position>(world);
 
@@ -162,10 +154,33 @@ Future<void> main(List<String> arguments) async {
     grabbed = !grabbed;
   });
 
+  window.onKey.where((event) => event.key == glfwKeyP && event.action == glfwPress).listen((event) {
+    DebugCameraMovementSystem.move = !DebugCameraMovementSystem.move;
+  });
+
   window.onKey.where((event) => event.key == glfwKeyR && event.action == glfwPress).listen((event) {
     for (final mesh in world.componentManager
         .getComponentsByType<ChunkMeshComponent>(ComponentType.getTypeFor(ChunkMeshComponent))) {
       mesh.state = ChunkMeshState.empty;
+    }
+  });
+
+  window.onMouseButton
+      .where((event) => event.button == glfwMouseButtonRight && event.action == glfwPress)
+      .listen((event) {
+    final cameraPos = posMapper[tags.getEntity('active_camera')!];
+    final cameraBlockPos = DiscretePosition(cameraPos.x.toInt(), cameraPos.y.toInt(), cameraPos.z.toInt());
+
+    final cameraChunkPos = ChunkStorage.worldPosToChunkPos(cameraBlockPos);
+    final chunk = world.chunks.chunkAt(cameraChunkPos);
+
+    if (chunk is! EmptyChunk) {
+      chunk[Chunk.worldPosToLocalPos(cameraBlockPos)] = 1;
+      world.componentManager
+          .getComponent<ChunkMeshComponent>(world.getManager<ChunkManager>().entityForChunk(cameraChunkPos)!,
+              ComponentType.getTypeFor(ChunkMeshComponent))!
+          .state = ChunkMeshState.empty;
+      ;
     }
   });
 
@@ -220,9 +235,23 @@ Future<void> main(List<String> arguments) async {
   var lastTime = glfw.getTime(), passedTime = 0.0;
   var logicTimer = 0.0;
 
+  final fb = GlFramebuffer.trackingWindow(window);
+
+  renderContext.findProgram('terrain').uniform4vf('uFogColor', Color.white.asVector());
+  renderContext.findProgram('terrain').uniform1f('uFogStart', 175);
+  renderContext.findProgram('terrain').uniform1f('uFogEnd', 250);
+
+  renderContext.findProgram('terrain').uniformSampler('uSky', fb.colorAttachment, 1);
+  renderContext.findProgram('terrain').uniform2f('uSkySize', window.width.toDouble(), window.height.toDouble());
+  window.onResize.listen((event) {
+    renderContext.findProgram('terrain').uniformSampler('uSky', fb.colorAttachment, 1);
+    renderContext.findProgram('terrain').uniform2f('uSkySize', event.width.toDouble(), event.height.toDouble());
+  });
+
   while (glfw.windowShouldClose(window.handle) != glfwTrue) {
     // execute scheduled microtasks
     await Future.delayed(Duration.zero);
+    // gl.enable(glCullFace);
 
     gl.clearColor(0, 0, 0, 0);
     gl.clear(glColorBufferBit | glDepthBufferBit | glStencilBufferBit);
@@ -230,6 +259,8 @@ Future<void> main(List<String> arguments) async {
     gl.enable(glDepthTest);
 
     TriCount.triCount = 0;
+    fb.bind();
+    fb.clear(color: Color.ofArgb(0), depth: 1);
 
     var delta = glfw.getTime() - lastTime;
     lastTime = glfw.getTime();
@@ -248,6 +279,22 @@ Future<void> main(List<String> arguments) async {
     skyBuffer.program.uniformMat4("uTransform", Matrix4.identity());
     skyBuffer.program.use();
     skyBuffer.draw();
+
+    fb.unbind();
+    gl.blitNamedFramebuffer(
+      fb.fbo,
+      0,
+      0,
+      0,
+      fb.width,
+      fb.height,
+      0,
+      0,
+      fb.width,
+      fb.height,
+      glColorBufferBit | glDepthBufferBit,
+      glNearest,
+    );
 
     final camera = cameraMapper[tags.getEntity("active_camera")!];
     final viewMatrix = camera.computeViewMatrix(posMapper[tags.getEntity("active_camera")!]);
@@ -315,10 +362,7 @@ Future<void> main(List<String> arguments) async {
 
   glfw.terminate();
 
-  for (final compiler in chunkCompilers) {
-    compiler.shutdown();
-  }
-
+  chunkCompilers.shutdown();
   for (final worker in chunkGenWorkers) {
     worker.shutdown();
   }

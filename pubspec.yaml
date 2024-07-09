@@ -27,7 +27,7 @@ dependencies:
   diamond_gl:
     git: 
       url: 'https://github.com/gliscowo/diamond_gl.git'
-      ref: 47062d8
+      ref: ec33818
   logging: ^1.1.0
   meta: ^1.9.0
   path: ^1.8.3

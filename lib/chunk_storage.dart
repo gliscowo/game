@@ -31,7 +31,7 @@ class DiscretePosition {
 
 enum AxisDirection { positiveX, negativeX, positiveY, negativeY, positiveZ, negativeZ }
 
-final _noise = ValueNoise(seed: DateTime.now().millisecond);
+final _noise = ValueNoise(seed: 1337);
 
 class Chunk {
   static const size = 16;
@@ -58,11 +58,10 @@ class ChunkStorage {
 
   void generate(List<ChunkGenWorker> workers, int radius, int verticalRange) {
     var workerIndex = 0;
-    iterateRingColumns(radius, verticalRange, (chunkPos) {
+    for (final chunkPos in iterateRingColumns(radius, verticalRange)) {
       workerIndex = (workerIndex + 1) % workers.length;
-
       _enqueue(workers[workerIndex], chunkPos);
-    });
+    }
   }
 
   void scheduleChunk(ChunkGenWorker worker, DiscretePosition pos) {

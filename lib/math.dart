@@ -70,9 +70,11 @@ class Size {
   bool operator ==(Object other) => other is Size && other.width == width && other.height == height;
 }
 
-void iterateRingColumns(int maxRadius, int halfHeightRange, void Function(DiscretePosition point) action) {
-  for (var y = -halfHeightRange; y <= halfHeightRange; y++) {
-    action(DiscretePosition(0, y, 0));
+Iterable<DiscretePosition> iterateRingColumns(int maxRadius, int halfHeightRange) sync* {
+  yield DiscretePosition(0, 0, 0);
+  for (var y = 0; y <= halfHeightRange; y++) {
+    yield DiscretePosition(0, -y, 0);
+    yield DiscretePosition(0, y, 0);
   }
 
   for (var radius = 0; radius < maxRadius; radius++) {
@@ -88,8 +90,10 @@ void iterateRingColumns(int maxRadius, int halfHeightRange, void Function(Discre
 
     for (int side = 0; side < 4; ++side) {
       for (int i = 1; i < sideLength; ++i) {
-        for (var y = -halfHeightRange; y <= halfHeightRange; y++) {
-          action(DiscretePosition(x, y, z));
+        yield DiscretePosition(x, 0, z);
+        for (var y = 0; y <= halfHeightRange; y++) {
+          yield DiscretePosition(x, -y, z);
+          yield DiscretePosition(x, y, z);
         }
 
         x += dx;

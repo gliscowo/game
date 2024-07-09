@@ -10,9 +10,13 @@ in vec2 aUv;
 
 out vec3 vNormal;
 out vec2 vUv;
+out float vDistance;
 
 void main() {
-    gl_Position = uProjection * uView * vec4(aPos.xyz + uOffset, 1.0);
+    vec4 relativePos = uView * vec4(aPos.xyz + uOffset, 1.0);
     vNormal = aNormal;
     vUv = aUv;
+    vDistance = abs(length(relativePos.xyz));
+
+    gl_Position = uProjection * relativePos;
 }
