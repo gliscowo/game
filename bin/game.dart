@@ -15,6 +15,7 @@ import 'package:game/components/fysik.dart';
 import 'package:game/components/transform.dart';
 import 'package:game/context.dart';
 import 'package:game/game.dart';
+import 'package:game/input.dart';
 import 'package:game/obj.dart';
 import 'package:game/text/text.dart';
 import 'package:game/text/text_renderer.dart';
@@ -113,8 +114,9 @@ Future<void> main(List<String> arguments) async {
   world.addManager(tags);
   world.addManager(ChunkManager());
 
-  // world.addSystem(CameraControlSystem(InputProvider(window)), group: renderGroup);
-  world.addSystem(DebugCameraMovementSystem(), group: renderGroup);
+  world.addSystem(CameraControlSystem(InputProvider(window)), group: renderGroup);
+  // world.addSystem(DebugCameraMovementSystem(), group: renderGroup);
+  // world.addSystem(ChunkRiseSystem(), group: renderGroup);
   world.addSystem(ChunkRenderSystem(renderContext, chunkCompilers), group: renderGroup);
   world.addSystem(ChunkLoadingSystem(chunkGenWorkers), group: logicGroup);
   world.addSystem(VelocitySystem(), group: logicGroup);

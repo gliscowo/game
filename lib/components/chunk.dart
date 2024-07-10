@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:collection';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:dartemis/dartemis.dart';
 import 'package:diamond_gl/diamond_gl.dart';
@@ -26,8 +27,11 @@ class ChunkDataComponent extends Component {
 enum ChunkMeshState { empty, building, ready }
 
 class ChunkMeshComponent extends Component {
+  final double spawnTime;
   MeshBuffer<TerrainVertexFunction>? buffer;
   ChunkMeshState state = ChunkMeshState.empty;
+
+  ChunkMeshComponent(this.spawnTime);
 }
 
 class ChunkManager extends Manager {
@@ -108,12 +112,32 @@ class ChunkLoadingSystem extends _$ChunkLoadingSystem {
         world.createEntity([
           Position(x: 16.0 * chunkPos.x, y: 16.0 * chunkPos.y, z: 16.0 * chunkPos.z),
           ChunkDataComponent(chunkPos),
-          ChunkMeshComponent(),
+          ChunkMeshComponent(DateTime.now().millisecondsSinceEpoch / 1000),
         ]);
       }
     }
   }
 }
+
+// class ChunkRiseAnimationComponent extends Component {
+//   final Vector3 targetPosition;
+//   final double duration;
+//   final double startTime;
+
+//   ChunkRiseAnimationComponent(this.targetPosition, this.duration, this.startTime);
+// }
+
+// @Generate(EntityProcessingSystem, allOf: [ChunkMeshComponent, ChunkRiseAnimationComponent, Position])
+// class ChunkRiseSystem extends _$ChunkRiseSystem {
+//   @override
+//   void processEntity(int entity, ChunkMeshComponent mesh, ChunkRiseAnimationComponent animation, Position pos) {
+//     if (world.time() - animation.startTime <= animation.duration) {
+
+//     } else {
+//       world.removeComponent<ChunkRiseAnimationComponent>(entity);
+//   }
+//   }
+// }
 
 typedef CompileWorkers = WorkerPool<(Obj, ChunkStorage), BufferWriter>;
 
@@ -161,6 +185,7 @@ class ChunkRenderSystem extends _$ChunkRenderSystem {
       return;
     }
 
+    // TODO ever heard of a switch?
     if (mesh.state == ChunkMeshState.empty &&
         _compilers.taskCount < _compilers.size * 4 &&
         chunkStorage.statusAt(data.pos) != ChunkStatus.scheduled) {
@@ -174,7 +199,9 @@ class ChunkRenderSystem extends _$ChunkRenderSystem {
 
       mesh.state = ChunkMeshState.building;
     } else if (mesh.state == ChunkMeshState.ready && !chunkBuffer.isEmpty) {
-      chunkBuffer.program.uniform3vf("uOffset", pos.value);
+      final offset = 1.0 - min((DateTime.now().millisecondsSinceEpoch / 1000 - mesh.spawnTime) / 1.5, 1.0);
+
+      chunkBuffer.program.uniform3vf("uOffset", pos.value - (Vector3(0, 25, 0) * offset));
       chunkBuffer.drawAndCount();
     }
   }
