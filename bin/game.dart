@@ -2,6 +2,7 @@ import 'dart:ffi';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:args/args.dart';
 import 'package:dart_glfw/dart_glfw.dart';
 import 'package:dart_opengl/dart_opengl.dart';
 import 'package:dartemis/dartemis.dart';
@@ -42,6 +43,13 @@ Future<void> main(List<String> arguments) async {
   loadOpenGL();
   loadGLFW("resources/lib/libglfw.so.3");
   initDiamondGL(logger: _logger);
+
+  final parser = setupArgs();
+  final args = parser.parse(arguments);
+  if (args.wasParsed('help')) {
+    print(parser.usage);
+    return;
+  }
 
   if (glfw.init() != glfwTrue) {
     _logger.severe("GLFW init failed");
@@ -105,7 +113,7 @@ Future<void> main(List<String> arguments) async {
   glfw.makeContextCurrent(nullptr);
   final (chunkCompilers, chunkGenWorkers) = await (
     createChunkCompileWorkers(min(Platform.numberOfProcessors ~/ 2, 8)),
-    Future.wait(List.generate(min(Platform.numberOfProcessors ~/ 2, 8), ChunkGenWorker.spawn))
+    createChunkGenWorkers(min(Platform.numberOfProcessors ~/ 2, 8))
   ).wait;
   glfw.makeContextCurrent(window.handle);
 
@@ -114,9 +122,15 @@ Future<void> main(List<String> arguments) async {
   world.addManager(tags);
   world.addManager(ChunkManager());
 
-  world.addSystem(CameraControlSystem(InputProvider(window)), group: renderGroup);
-  // world.addSystem(DebugCameraMovementSystem(), group: renderGroup);
-  // world.addSystem(ChunkRiseSystem(), group: renderGroup);
+  if (!args.wasParsed('debug-camera')) {
+    world.addSystem(CameraControlSystem(InputProvider(window)), group: renderGroup);
+  } else {
+    world.addSystem(DebugCameraMovementSystem(), group: renderGroup);
+    window.onKey.where((event) => event.key == glfwKeyP && event.action == glfwPress).listen((event) {
+      DebugCameraMovementSystem.move = !DebugCameraMovementSystem.move;
+    });
+  }
+
   world.addSystem(ChunkRenderSystem(renderContext, chunkCompilers), group: renderGroup);
   world.addSystem(ChunkLoadingSystem(chunkGenWorkers), group: logicGroup);
   world.addSystem(VelocitySystem(), group: logicGroup);
@@ -156,10 +170,6 @@ Future<void> main(List<String> arguments) async {
     grabbed = !grabbed;
   });
 
-  window.onKey.where((event) => event.key == glfwKeyP && event.action == glfwPress).listen((event) {
-    DebugCameraMovementSystem.move = !DebugCameraMovementSystem.move;
-  });
-
   window.onKey.where((event) => event.key == glfwKeyR && event.action == glfwPress).listen((event) {
     for (final mesh in world.componentManager
         .getComponentsByType<ChunkMeshComponent>(ComponentType.getTypeFor(ChunkMeshComponent))) {
@@ -182,7 +192,6 @@ Future<void> main(List<String> arguments) async {
           .getComponent<ChunkMeshComponent>(world.getManager<ChunkManager>().entityForChunk(cameraChunkPos)!,
               ComponentType.getTypeFor(ChunkMeshComponent))!
           .state = ChunkMeshState.empty;
-      ;
     }
   });
 
@@ -365,9 +374,15 @@ Future<void> main(List<String> arguments) async {
   glfw.terminate();
 
   chunkCompilers.shutdown();
-  for (final worker in chunkGenWorkers) {
-    worker.shutdown();
-  }
+  chunkGenWorkers.shutdown();
+}
+
+ArgParser setupArgs() {
+  final parser = ArgParser();
+  parser.addFlag('debug-camera', help: 'Disable normal user input in favor of debug camera movement', negatable: false);
+  parser.addFlag('help', help: 'Print this usage information', negatable: false);
+
+  return parser;
 }
 
 void onGlfwError(int errorCode, Pointer<Char> description) {
