@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:collection';
-import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:fast_noise/fast_noise.dart';
@@ -8,6 +7,7 @@ import 'package:logging/logging.dart';
 import 'package:vector_math/vector_math.dart';
 
 import 'math.dart';
+import 'worker.dart';
 
 class DiscretePosition {
   final int x, y, z;
@@ -56,26 +56,24 @@ class ChunkStorage {
   final Map<DiscretePosition, Chunk> _chunks = HashMap();
   final Set<DiscretePosition> _scheduledChunks = HashSet();
 
-  void generate(List<ChunkGenWorker> workers, int radius, int verticalRange) {
-    var workerIndex = 0;
+  void generate(ChunkGenWorkers workers, int radius, int verticalRange) {
     for (final chunkPos in iterateRingColumns(radius, verticalRange)) {
-      workerIndex = (workerIndex + 1) % workers.length;
-      _enqueue(workers[workerIndex], chunkPos);
+      _enqueue(workers, chunkPos);
     }
   }
 
-  void scheduleChunk(ChunkGenWorker worker, DiscretePosition pos) {
+  void scheduleChunk(ChunkGenWorkers workers, DiscretePosition pos) {
     if (statusAt(pos) != ChunkStatus.empty) {
       _logger.warning('Tried to schedule ${statusAt(pos).name} chunk for generation again');
       return;
     }
 
-    _enqueue(worker, pos);
+    _enqueue(workers, pos);
   }
 
-  void _enqueue(ChunkGenWorker worker, DiscretePosition chunkPos) {
+  void _enqueue(ChunkGenWorkers workers, DiscretePosition chunkPos) {
     _scheduledChunks.add(chunkPos);
-    worker.enqueueChunk(chunkPos, (chunk) {
+    workers.process(chunkPos).then((chunk) {
       _chunks[chunkPos] = chunk;
       _scheduledChunks.remove(chunkPos);
     });
@@ -171,75 +169,25 @@ class SliceChunk implements Chunk {
   bool hasBlockAt(DiscretePosition pos) => blockStorage[_storageIndex(pos.x, pos.y, pos.z)] != 0;
 }
 
-class ChunkGenWorker {
-  final Map<int, void Function(Chunk)> _callbacks = {};
-  final SendPort _commands;
-  final ReceivePort _responses;
-  final Isolate _isolate;
+typedef ChunkGenWorkers = WorkerPool<DiscretePosition, Chunk>;
+Future<ChunkGenWorkers> createChunkGenWorkers(int size) {
+  return WorkerPool.create(() {}, _generateChunk, size, (idx) => "chunk-gen-worker-$idx");
+}
 
-  int _nextKey = 0;
+Chunk _generateChunk(DiscretePosition basePos) {
+  final chunk = Chunk();
+  basePos *= 16;
 
-  ChunkGenWorker._(this._commands, this._responses, this._isolate) {
-    _responses.listen((message) => _handleResponse(message));
-  }
-
-  static Future<ChunkGenWorker> spawn(int id) async {
-    final initPort = RawReceivePort();
-    final connection = Completer<(ReceivePort, SendPort)>.sync();
-    initPort.handler = (initialMessage) {
-      final commandPort = initialMessage as SendPort;
-      connection.complete((ReceivePort.fromRawReceivePort(initPort), commandPort));
-    };
-
-    final isolate = await Isolate.spawn(_worker, initPort.sendPort, debugName: "worldgen-worker-$id");
-    final (responses, commands) = await connection.future;
-
-    return ChunkGenWorker._(commands, responses, isolate);
-  }
-
-  void _handleResponse(Object message) {
-    if (message case (int key, Chunk chunk)) {
-      _callbacks.remove(key)!.call(chunk);
-    }
-  }
-
-  void enqueueChunk(DiscretePosition basePos, void Function(Chunk) callback) {
-    final key = _nextKey++;
-    _commands.send((key, basePos));
-    _callbacks[key] = callback;
-  }
-
-  void shutdown() {
-    _isolate.kill(priority: Isolate.immediate);
-    _responses.close();
-  }
-
-  static void _worker(SendPort responses) {
-    final commands = ReceivePort();
-    responses.send(commands.sendPort);
-
-    commands.listen((message) {
-      if (message case (int key, DiscretePosition basePos)) {
-        responses.send((key, _generateChunk(basePos)));
-      }
-    });
-  }
-
-  static Chunk _generateChunk(DiscretePosition basePos) {
-    final chunk = Chunk();
-    basePos *= 16;
-
-    for (var blockX = 0; blockX < Chunk.size; blockX++) {
-      for (var blockY = 0; blockY < Chunk.size; blockY++) {
-        for (var blockZ = 0; blockZ < Chunk.size; blockZ++) {
-          if (basePos.y + blockY <
-              _noise.getNoise2((basePos.x + blockX).toDouble(), (basePos.z + blockZ).toDouble()) * 30) {
-            chunk[DiscretePosition(blockX, blockY, blockZ)] = 1;
-          }
+  for (var blockX = 0; blockX < Chunk.size; blockX++) {
+    for (var blockY = 0; blockY < Chunk.size; blockY++) {
+      for (var blockZ = 0; blockZ < Chunk.size; blockZ++) {
+        if (basePos.y + blockY <
+            _noise.getNoise2((basePos.x + blockX).toDouble(), (basePos.z + blockZ).toDouble()) * 30) {
+          chunk[DiscretePosition(blockX, blockY, blockZ)] = 1;
         }
       }
     }
-
-    return chunk;
   }
+
+  return chunk;
 }

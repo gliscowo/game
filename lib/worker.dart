@@ -2,34 +2,45 @@ import 'dart:async';
 import 'dart:collection';
 import 'dart:isolate';
 
+import 'package:meta/meta.dart';
+
 class WorkerPool<I, O> {
   final List<WorkerIsolate<I, O>> _workers;
   int _taskCount = 0;
 
   WorkerPool._(this._workers);
 
-  static Future<WorkerPool<I, O>> create<I, O>(void Function() init, O Function(I) task, int size, String name) async =>
+  /// Create a new [WorkerPool] of size [size]
+  ///
+  /// Each worker is initialized after startup by executing
+  /// [init], after which it will execute [task] for every
+  /// command sent through [process]
+  ///
+  /// [nameFactory] is used to generate the [Isolate.debugName]
+  /// for each worker from its index
+  @factory
+  static Future<WorkerPool<I, O>> create<I, O>(
+    void Function() init,
+    O Function(I) task,
+    int size,
+    String Function(int) nameFactory,
+  ) async =>
       WorkerPool._(await Future.wait(List.generate(
         size,
-        (idx) => WorkerIsolate.spawn<I, O>(init, task, '$name-$idx'),
+        (idx) => WorkerIsolate.spawn<I, O>(init, task, nameFactory(idx)),
       )));
 
+  /// How many commands this pool is currently processing
   int get taskCount => _taskCount;
+
+  /// The amount of workers this pool currently uses
   int get size => _workers.length;
 
   Future<O> process(I command) {
-    var workerWithLowestTaskCount = _workers.first;
-    for (final worker in _workers.skip(1)) {
-      if (worker.pendingTasks < workerWithLowestTaskCount.pendingTasks) {
-        workerWithLowestTaskCount = worker;
-      }
-    }
+    var workerWithLowestTaskCount = _workers.reduce((a, b) => a.pendingTasks < b.pendingTasks ? a : b);
 
     _taskCount++;
-    return workerWithLowestTaskCount.process(command).then((value) {
-      _taskCount--;
-      return value;
-    });
+    return workerWithLowestTaskCount.process(command).whenComplete(() => _taskCount--);
   }
 
   void shutdown() {

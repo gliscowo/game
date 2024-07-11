@@ -9,6 +9,7 @@ import 'package:vector_math/vector_math.dart';
 
 import '../chunk_storage.dart';
 import '../context.dart';
+import '../easing.dart';
 import '../game.dart';
 import '../math.dart';
 import '../obj.dart';
@@ -68,21 +69,20 @@ class ChunkManager extends Manager {
   manager: [ChunkManager, TagManager],
 )
 class ChunkLoadingSystem extends _$ChunkLoadingSystem {
-  final List<ChunkGenWorker> _genWorkers;
-  int _workerIndex = 0;
+  final ChunkGenWorkers _generators;
 
-  ChunkLoadingSystem(this._genWorkers) : super(.5);
+  ChunkLoadingSystem(this._generators) : super(.5);
 
   @override
   void processEntity(int entity) {
-    final pos = positionMapper[entity].value;
+    final pos = chunkDataComponentMapper[entity].pos;
     final cameraPos = positionMapper[tagManager.getEntity('active_camera')!].value;
 
-    const maxHorizontal = 16 * 17;
-    const maxVertical = 16 * 9;
-    if ((pos.x - cameraPos.x).abs() < maxHorizontal &&
-        (pos.z - cameraPos.z).abs() < maxHorizontal &&
-        (pos.y - cameraPos.y).abs() < maxVertical) return;
+    const maxHorizontal = 17;
+    const maxVertical = 9;
+    if ((pos.x - cameraPos.x / 16).abs() < maxHorizontal &&
+        (pos.z - cameraPos.z / 16).abs() < maxHorizontal &&
+        (pos.y - cameraPos.y / 16).abs() < maxVertical) return;
 
     chunkMeshComponentMapper[entity].buffer?.delete();
     world.deleteEntity(entity);
@@ -105,39 +105,21 @@ class ChunkLoadingSystem extends _$ChunkLoadingSystem {
       if (chunkManager.entityForChunk(chunkPos) != null) continue;
 
       final status = chunks.statusAt(chunkPos);
-      if (status == ChunkStatus.empty) {
-        _workerIndex = (_workerIndex + 1) % _genWorkers.length;
-        chunks.scheduleChunk(_genWorkers[_workerIndex], chunkPos);
-      } else if (status == ChunkStatus.loaded) {
-        world.createEntity([
-          Position(x: 16.0 * chunkPos.x, y: 16.0 * chunkPos.y, z: 16.0 * chunkPos.z),
-          ChunkDataComponent(chunkPos),
-          ChunkMeshComponent(DateTime.now().millisecondsSinceEpoch / 1000),
-        ]);
+      switch (status) {
+        case ChunkStatus.empty:
+          if (_generators.taskCount > _generators.size * 128) continue;
+          chunks.scheduleChunk(_generators, chunkPos);
+        case ChunkStatus.loaded:
+          world.createEntity([
+            Position(x: 16.0 * chunkPos.x, y: 16.0 * chunkPos.y, z: 16.0 * chunkPos.z),
+            ChunkDataComponent(chunkPos),
+            ChunkMeshComponent(world.time(1)),
+          ]);
+        default:
       }
     }
   }
 }
-
-// class ChunkRiseAnimationComponent extends Component {
-//   final Vector3 targetPosition;
-//   final double duration;
-//   final double startTime;
-
-//   ChunkRiseAnimationComponent(this.targetPosition, this.duration, this.startTime);
-// }
-
-// @Generate(EntityProcessingSystem, allOf: [ChunkMeshComponent, ChunkRiseAnimationComponent, Position])
-// class ChunkRiseSystem extends _$ChunkRiseSystem {
-//   @override
-//   void processEntity(int entity, ChunkMeshComponent mesh, ChunkRiseAnimationComponent animation, Position pos) {
-//     if (world.time() - animation.startTime <= animation.duration) {
-
-//     } else {
-//       world.removeComponent<ChunkRiseAnimationComponent>(entity);
-//   }
-//   }
-// }
 
 typedef CompileWorkers = WorkerPool<(Obj, ChunkStorage), BufferWriter>;
 
@@ -146,7 +128,7 @@ typedef CompileWorkers = WorkerPool<(Obj, ChunkStorage), BufferWriter>;
   allOf: [Position, ChunkDataComponent, ChunkMeshComponent],
 )
 class ChunkRenderSystem extends _$ChunkRenderSystem {
-  static final int cubeTexture = loadTexture("grass", mipmap: true);
+  static final cubeTexture = loadTexture("grass", mipmap: true);
   static final cube = loadObj(File("resources/cube.obj"));
 
   final Frustum _frustum = Frustum();
@@ -179,36 +161,36 @@ class ChunkRenderSystem extends _$ChunkRenderSystem {
     final chunkBuffer = mesh.buffer ??= MeshBuffer(terrainVertexDescriptor, _context.findProgram("terrain"));
     final chunkStorage = _chunks!;
 
-    if (!_frustum.intersectsWithAabb3(
-      Aabb3.minMax(data.pos.toVec3()..scale(16), (data.pos.offset(x: 1, y: 1, z: 1)).toVec3()..scale(16)),
-    )) {
+    final chunkBasePos = data.pos.toVec3()..scale(16);
+    if (!_frustum.intersectsWithAabb3(Aabb3.minMax(chunkBasePos, chunkBasePos + Vector3.all(16)))) {
       return;
     }
 
-    // TODO ever heard of a switch?
-    if (mesh.state == ChunkMeshState.empty &&
-        _compilers.taskCount < _compilers.size * 4 &&
-        chunkStorage.statusAt(data.pos) != ChunkStatus.scheduled) {
-      _compilers.process((cube, chunkStorage.maskChunkForCompilation(data.pos))).then((buffer) {
-        chunkBuffer.clear();
-        chunkBuffer.buffer = buffer;
+    switch (mesh.state) {
+      case ChunkMeshState.empty:
+        if (_compilers.taskCount > _compilers.size * 4 || chunkStorage.statusAt(data.pos) != ChunkStatus.loaded) return;
 
-        chunkBuffer.upload();
-        mesh.state = ChunkMeshState.ready;
-      });
+        _compilers.process((cube, chunkStorage.maskChunkForCompilation(data.pos))).then((buffer) {
+          chunkBuffer.clear();
+          chunkBuffer.buffer = buffer;
 
-      mesh.state = ChunkMeshState.building;
-    } else if (mesh.state == ChunkMeshState.ready && !chunkBuffer.isEmpty) {
-      final offset = 1.0 - min((DateTime.now().millisecondsSinceEpoch / 1000 - mesh.spawnTime) / 1.5, 1.0);
+          chunkBuffer.upload();
+          mesh.state = ChunkMeshState.ready;
+        });
+      case ChunkMeshState.ready:
+        if (chunkBuffer.isEmpty) return;
 
-      chunkBuffer.program.uniform3vf("uOffset", pos.value - (Vector3(0, 25, 0) * offset));
-      chunkBuffer.drawAndCount();
+        final offset = 1.0 - min((world.time(1) - mesh.spawnTime), 1.0);
+        chunkBuffer.program.uniform3vf("uOffset", pos.value - (Vector3(0, 16, 0) * offset.easeQuartic()));
+
+        chunkBuffer.drawAndCount();
+      default:
     }
   }
 }
 
 Future<CompileWorkers> createChunkCompileWorkers(int size) {
-  return WorkerPool.create(() => initDiamondGL(), _compileChunk, size, "chunk-compile-worker");
+  return WorkerPool.create(() => initDiamondGL(), _compileChunk, size, (idx) => "chunk-compile-worker-$idx");
 }
 
 BufferWriter _compileChunk((Obj, ChunkStorage) command) {
