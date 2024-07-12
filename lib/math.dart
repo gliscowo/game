@@ -70,11 +70,15 @@ class Size {
   bool operator ==(Object other) => other is Size && other.width == width && other.height == height;
 }
 
-Iterable<DiscretePosition> iterateRingColumns(int maxRadius, int halfHeightRange) sync* {
-  yield DiscretePosition(0, 0, 0);
+Iterable<DiscretePosition> iterateOutwards(
+  int maxRadius,
+  int halfHeightRange, {
+  DiscretePosition basePos = const DiscretePosition.origin(),
+}) sync* {
+  yield basePos;
   for (var y = 0; y <= halfHeightRange; y++) {
-    yield DiscretePosition(0, -y, 0);
-    yield DiscretePosition(0, y, 0);
+    yield DiscretePosition(basePos.x, basePos.y - y, basePos.z);
+    yield DiscretePosition(basePos.x, basePos.y + y, basePos.z);
   }
 
   for (var radius = 0; radius < maxRadius; radius++) {
@@ -90,10 +94,10 @@ Iterable<DiscretePosition> iterateRingColumns(int maxRadius, int halfHeightRange
 
     for (int side = 0; side < 4; ++side) {
       for (int i = 1; i < sideLength; ++i) {
-        yield DiscretePosition(x, 0, z);
+        yield DiscretePosition(basePos.x + x, basePos.y, basePos.x + z);
         for (var y = 0; y <= halfHeightRange; y++) {
-          yield DiscretePosition(x, -y, z);
-          yield DiscretePosition(x, y, z);
+          yield DiscretePosition(basePos.x + x, basePos.y - y, basePos.z + z);
+          yield DiscretePosition(basePos.x + x, basePos.y + y, basePos.z + z);
         }
 
         x += dx;

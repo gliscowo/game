@@ -14,10 +14,10 @@ final _textures = <String, int>{};
 int loadTexture(String name, {bool mipmap = false, double maxAnisotropy = 1}) {
   if (_textures.containsKey(name)) return _textures[name]!;
 
-  final imageData = decodePng(File("resources/texture/$name.png").readAsBytesSync())
+  final imageData = decodePng(File('resources/texture/$name.png').readAsBytesSync())
       ?.convert(format: Format.uint8, numChannels: 4, alpha: 255);
   if (imageData == null) {
-    throw "Failed to load texture $name";
+    throw 'Failed to load texture $name';
   }
 
   final idPtr = malloc<UnsignedInt>();

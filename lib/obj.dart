@@ -26,7 +26,7 @@ Obj loadObj(File from) {
   final tris = <Tri>[];
 
   for (final line in from.readAsLinesSync()) {
-    final parts = line.trim().split(RegExp(r"\s+"));
+    final parts = line.trim().split(RegExp(r'\s+'));
 
     switch (parts.first) {
       case 'v':
@@ -36,7 +36,7 @@ Obj loadObj(File from) {
       case 'vn':
         normals.add(Vector3(double.parse(parts[1]), double.parse(parts[2]), double.parse(parts[3])));
       case 'f':
-        final indices = parts.skip(1).take(3).expand((e) => e.split("/")).map(int.parse).toList();
+        final indices = parts.skip(1).take(3).expand((e) => e.split('/')).map(int.parse).toList();
         tris.add(Tri(
           (indices[0], indices[0 + 3], indices[0 + 6]),
           (indices[1], indices[1 + 3], indices[1 + 6]),

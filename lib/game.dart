@@ -12,7 +12,7 @@ extension TriCount on MeshBuffer {
 }
 
 extension WorldProperties on World {
-  static const chunkManager = "chunk_manager";
+  static const chunkManager = 'chunk_manager';
 
   ChunkStorage get chunks => properties[chunkManager] as ChunkStorage;
   set chunks(ChunkStorage storage) => properties[chunkManager] = storage;

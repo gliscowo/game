@@ -4,9 +4,9 @@ import 'package:vector_math/vector_math.dart';
 typedef TerrainVertexFunction = void Function(Vector3 pos, Vector3 normal, double u, double v);
 final VertexDescriptor<TerrainVertexFunction> terrainVertexDescriptor = VertexDescriptor(
   (attribute) {
-    attribute("aPos", VertexElement.float, 3);
-    attribute("aNormal", VertexElement.float, 3);
-    attribute("aUv", VertexElement.float, 2);
+    attribute('aPos', VertexElement.float, 3);
+    attribute('aNormal', VertexElement.float, 3);
+    attribute('aUv', VertexElement.float, 2);
   },
   (buffer) => (pos, normal, u, v) {
     buffer.float3(pos.x, pos.y, pos.z);
@@ -18,8 +18,8 @@ final VertexDescriptor<TerrainVertexFunction> terrainVertexDescriptor = VertexDe
 typedef PosColorVertexFunction = void Function(Vector3 pos, Color color);
 final VertexDescriptor<PosColorVertexFunction> posColorVertexDescriptor = VertexDescriptor(
   (attribute) {
-    attribute("aPos", VertexElement.float, 3);
-    attribute("aColor", VertexElement.float, 4);
+    attribute('aPos', VertexElement.float, 3);
+    attribute('aColor', VertexElement.float, 4);
   },
   (buffer) => (pos, color) {
     buffer.float3(pos.x, pos.y, pos.z);
@@ -30,9 +30,9 @@ final VertexDescriptor<PosColorVertexFunction> posColorVertexDescriptor = Vertex
 typedef PosUvColorVertexFunction = void Function(Vector3 pos, double u, double v, Color color);
 final VertexDescriptor<PosUvColorVertexFunction> posUvColorVertexDescriptor = VertexDescriptor(
   (attribute) {
-    attribute("aPos", VertexElement.float, 3);
-    attribute("aUv", VertexElement.float, 2);
-    attribute("aColor", VertexElement.float, 4);
+    attribute('aPos', VertexElement.float, 3);
+    attribute('aUv', VertexElement.float, 2);
+    attribute('aColor', VertexElement.float, 4);
   },
   (buffer) => (pos, u, v, color) {
     buffer.float3(pos.x, pos.y, pos.z);
@@ -44,9 +44,9 @@ final VertexDescriptor<PosUvColorVertexFunction> posUvColorVertexDescriptor = Ve
 typedef TextVertexFunction = void Function(double x, double y, double u, double v, Color color);
 final VertexDescriptor<TextVertexFunction> textVertexDescriptor = VertexDescriptor(
   (attribute) {
-    attribute("aPos", VertexElement.float, 2);
-    attribute("aUv", VertexElement.float, 2);
-    attribute("aColor", VertexElement.float, 4);
+    attribute('aPos', VertexElement.float, 2);
+    attribute('aUv', VertexElement.float, 2);
+    attribute('aColor', VertexElement.float, 4);
   },
   (buffer) => (x, y, u, v, color) {
     buffer.float2(x, y);

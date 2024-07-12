@@ -27,8 +27,8 @@ import 'package:vector_math/vector_math.dart';
 
 typedef GLFWerrorfun = Void Function(Int, Pointer<Char>);
 
-final Logger _logger = Logger("game");
-final Logger _glfwLogger = Logger("game.glfw");
+final Logger _logger = Logger('game');
+final Logger _glfwLogger = Logger('game.glfw');
 
 const tickRate = 64;
 const renderGroup = 1;
@@ -37,11 +37,11 @@ const logicGroup = 2;
 Future<void> main(List<String> arguments) async {
   Logger.root.level = Level.INFO;
   Logger.root.onRecord.listen((event) {
-    print("[${event.loggerName}] (${event.level.toString().toLowerCase()}) ${event.message}");
+    print('[${event.loggerName}] (${event.level.toString().toLowerCase()}) ${event.message}');
   });
 
   loadOpenGL();
-  loadGLFW("resources/lib/libglfw.so.3");
+  loadGLFW('resources/lib/libglfw.so.3');
   initDiamondGL(logger: _logger);
 
   final parser = setupArgs();
@@ -52,35 +52,35 @@ Future<void> main(List<String> arguments) async {
   }
 
   if (glfw.init() != glfwTrue) {
-    _logger.severe("GLFW init failed");
+    _logger.severe('GLFW init failed');
     exit(-1);
   }
 
   glfw.setErrorCallback(Pointer.fromFunction<GLFWerrorfun>(onGlfwError));
 
-  final window = Window(1000, 550, "game", debug: true);
+  final window = Window(1000, 550, 'game', debug: true);
   glfw.makeContextCurrent(window.handle);
 
   attachGlErrorCallback();
   minGlDebugSeverity = glDebugSeverityLow;
   gl.debugMessageInsert(
-      glDebugSourceThirdParty, glDebugTypeMarker, 0, glDebugSeverityHigh, -1, "bruh".toNativeUtf8().cast());
+      glDebugSourceThirdParty, glDebugTypeMarker, 0, glDebugSeverityHigh, -1, 'bruh'.toNativeUtf8().cast());
 
   final renderContext = RenderContext(
     window,
     await Future.wait([
-      vertFragProgram("gui_pos_color", "gui_pos_color", "gui_pos_color"),
-      vertFragProgram("gui_pos_uv_color", "gui_pos_uv_color", "gui_pos_uv_color"),
-      vertFragProgram("text", "text", "text"),
-      vertFragProgram("terrain", "terrain", "terrain"),
+      vertFragProgram('gui_pos_color', 'gui_pos_color', 'gui_pos_color'),
+      vertFragProgram('gui_pos_uv_color', 'gui_pos_uv_color', 'gui_pos_uv_color'),
+      vertFragProgram('text', 'text', 'text'),
+      vertFragProgram('terrain', 'terrain', 'terrain'),
     ]),
   );
 
-  final cascadia = FontFamily("CascadiaCode", 30);
-  final notoSans = FontFamily("NotoSans", 30);
+  final cascadia = FontFamily('CascadiaCode', 30);
+  final notoSans = FontFamily('NotoSans', 30);
   final textRenderer = TextRenderer(renderContext, notoSans, {
-    "Noto Sans": notoSans,
-    "CascadiaCode": cascadia,
+    'Noto Sans': notoSans,
+    'CascadiaCode': cascadia,
   });
 
   final uiProjection = makeOrthographicMatrix(0, window.width.toDouble(), window.height.toDouble(), 0, -10, 10);
@@ -92,7 +92,8 @@ Future<void> main(List<String> arguments) async {
     setPerspectiveMatrix(worldProjection, 75 * degrees2Radians, event.width / event.height, 0.1, 2000);
   });
 
-  var vSync = true;
+  var vSync = false;
+  glfw.swapInterval(0);
   window.onKey.where((event) => event.key == glfwKeyV && event.action == glfwPress).listen((event) {
     glfw.swapInterval(vSync ? 0 : 1);
     vSync = !vSync;
@@ -145,7 +146,7 @@ Future<void> main(List<String> arguments) async {
       Orientation(pitch: -90 * degrees2Radians),
       CameraConfiguration(),
     ]),
-    "active_camera",
+    'active_camera',
   );
 
   // world.chunks.generate(chunkGenWorkers, 12, 4);
@@ -194,9 +195,9 @@ Future<void> main(List<String> arguments) async {
     }
   });
 
-  final chyzTexture = loadTexture("chyzman");
-  final chyz = loadObj(File("resources/chyzman.obj"));
-  final chyzBuffer = MeshBuffer(terrainVertexDescriptor, renderContext.findProgram("terrain"));
+  final chyzTexture = loadTexture('chyzman');
+  final chyz = loadObj(File('resources/chyzman.obj'));
+  final chyzBuffer = MeshBuffer(terrainVertexDescriptor, renderContext.findProgram('terrain'));
   for (final Tri(:vertices, :normals, :uvs) in chyz.tris) {
     chyzBuffer.vertex(
       chyz.vertices[vertices.$1 - 1] + Vector3(8, .5, 8),
@@ -219,7 +220,7 @@ Future<void> main(List<String> arguments) async {
   }
   chyzBuffer.upload();
 
-  final skyBuffer = MeshBuffer(posColorVertexDescriptor, renderContext.findProgram("gui_pos_color"));
+  final skyBuffer = MeshBuffer(posColorVertexDescriptor, renderContext.findProgram('gui_pos_color'));
   skyBuffer
     ..vertex(Vector3(-1, 1, .9995), Color.ofRgb(0xFFF3C7))
     ..vertex(Vector3(-1, -1, .9995), Color.ofRgb(0x78a7ff))
@@ -229,8 +230,8 @@ Future<void> main(List<String> arguments) async {
     ..vertex(Vector3(1, 1, .9995), Color.ofRgb(0xFFF3C7))
     ..upload();
 
-  final crosshairTexture = loadTexture("crosshair");
-  final crosshairBuffer = MeshBuffer(posUvColorVertexDescriptor, renderContext.findProgram("gui_pos_uv_color"));
+  final crosshairTexture = loadTexture('crosshair');
+  final crosshairBuffer = MeshBuffer(posUvColorVertexDescriptor, renderContext.findProgram('gui_pos_uv_color'));
   crosshairBuffer
     ..vertex(Vector3(0, 0, 0), 0, 0, Color.white)
     ..vertex(Vector3(0, 15, 0), 0, 1, Color.white)
@@ -287,8 +288,8 @@ Future<void> main(List<String> arguments) async {
       ticks++;
     }
 
-    skyBuffer.program.uniformMat4("uProjection", Matrix4.identity());
-    skyBuffer.program.uniformMat4("uTransform", Matrix4.identity());
+    skyBuffer.program.uniformMat4('uProjection', Matrix4.identity());
+    skyBuffer.program.uniformMat4('uTransform', Matrix4.identity());
     skyBuffer.program.use();
     skyBuffer.draw();
 
@@ -308,18 +309,18 @@ Future<void> main(List<String> arguments) async {
       glNearest,
     );
 
-    final camera = cameraMapper[tags.getEntity("active_camera")!];
-    final viewMatrix = camera.computeViewMatrix(posMapper[tags.getEntity("active_camera")!]);
+    final camera = cameraMapper[tags.getEntity('active_camera')!];
+    final viewMatrix = camera.computeViewMatrix(posMapper[tags.getEntity('active_camera')!]);
 
     world.delta = delta;
-    world.properties["view_matrix"] = viewMatrix;
-    world.properties["world_projection"] = worldProjection;
+    world.properties['view_matrix'] = viewMatrix;
+    world.properties['world_projection'] = worldProjection;
     world.process(renderGroup);
 
-    chyzBuffer.program.uniformMat4("uProjection", worldProjection);
-    chyzBuffer.program.uniformMat4("uView", viewMatrix);
-    chyzBuffer.program.uniform3f("uOffset", 0, 0, 0);
-    chyzBuffer.program.uniformSampler("uTexture", chyzTexture, 0);
+    chyzBuffer.program.uniformMat4('uProjection', worldProjection);
+    chyzBuffer.program.uniformMat4('uView', viewMatrix);
+    chyzBuffer.program.uniform3f('uOffset', 0, 0, 0);
+    chyzBuffer.program.uniformSampler('uTexture', chyzTexture, 0);
     chyzBuffer.program.use();
     chyzBuffer.drawAndCount();
 
@@ -327,38 +328,38 @@ Future<void> main(List<String> arguments) async {
 
     gl.blendFunc(glOneMinusDstColor, glOneMinusSrcColor);
 
-    crosshairBuffer.program.uniformMat4("uProjection", uiProjection);
+    crosshairBuffer.program.uniformMat4('uProjection', uiProjection);
     crosshairBuffer.program.uniformMat4(
-        "uTransform",
+        'uTransform',
         Matrix4.identity()
           ..scale(2.0, 2.0, 1.0)
           ..translate(((window.width - 15) ~/ 4).toDouble(), ((window.height - 15) ~/ 4).toDouble(), 0));
-    crosshairBuffer.program.uniformSampler("uTexture", crosshairTexture, 0);
+    crosshairBuffer.program.uniformSampler('uTexture', crosshairTexture, 0);
     crosshairBuffer.program.use();
     crosshairBuffer.draw();
 
     gl.blendFunc(glSrcAlpha, glOneMinusSrcAlpha);
 
-    String compact(Vector values) => values.storage.map((e) => e.toStringAsFixed(3)).join(", ");
+    String compact(Vector values) => values.storage.map((e) => e.toStringAsFixed(3)).join(', ');
     textRenderer.drawText(5, window.height - 165,
-        Text.string("Microtask delta: ${avgMicrotaskDelta.toStringAsFixed(3)} ms"), 16, uiProjection,
+        Text.string('Microtask delta: ${avgMicrotaskDelta.toStringAsFixed(3)} ms'), 16, uiProjection,
         color: Color.black);
     textRenderer.drawText(
-        5, window.height - 145, Text.string("Entities: ${world.entityManager.activeEntityCount}"), 16, uiProjection,
+        5, window.height - 145, Text.string('Entities: ${world.entityManager.activeEntityCount}'), 16, uiProjection,
         color: Color.black);
     textRenderer.drawText(
-        5, window.height - 125, Text.string("Speed: ${camera.speed.toStringAsFixed(3)}"), 16, uiProjection,
+        5, window.height - 125, Text.string('Speed: ${camera.speed.toStringAsFixed(3)}'), 16, uiProjection,
         color: Color.black);
-    textRenderer.drawText(5, window.height - 105, Text.string("TPS: $lastTicks"), 16, uiProjection, color: Color.black);
+    textRenderer.drawText(5, window.height - 105, Text.string('TPS: $lastTicks'), 16, uiProjection, color: Color.black);
     textRenderer.drawText(
-        5, window.height - 85, Text.string("FPS: $lastFps (${vSync ? "v-sync" : "uncapped"})"), 16, uiProjection,
+        5, window.height - 85, Text.string('FPS: $lastFps (${vSync ? 'v-sync' : 'uncapped'})'), 16, uiProjection,
         color: Color.black);
-    textRenderer.drawText(5, window.height - 65, Text.string("Triangles: ${TriCount.triCount}"), 16, uiProjection,
+    textRenderer.drawText(5, window.height - 65, Text.string('Triangles: ${TriCount.triCount}'), 16, uiProjection,
         color: Color.black);
-    textRenderer.drawText(5, window.height - 45, Text.string("Forward: ${compact(camera.forward)}"), 16, uiProjection,
+    textRenderer.drawText(5, window.height - 45, Text.string('Forward: ${compact(camera.forward)}'), 16, uiProjection,
         color: Color.black);
     textRenderer.drawText(5, window.height - 25,
-        Text.string("Pos: ${compact(posMapper[tags.getEntity("active_camera")!].value)}"), 16, uiProjection,
+        Text.string('Pos: ${compact(posMapper[tags.getEntity('active_camera')!].value)}'), 16, uiProjection,
         color: Color.black);
 
     window.nextFrame();
@@ -395,13 +396,13 @@ ArgParser setupArgs() {
 }
 
 void onGlfwError(int errorCode, Pointer<Char> description) {
-  _glfwLogger.severe("GLFW Error: ${description.cast<Utf8>().toDartString()} ($errorCode)");
+  _glfwLogger.severe('GLFW Error: ${description.cast<Utf8>().toDartString()} ($errorCode)');
 }
 
 Future<GlProgram> vertFragProgram(String name, String vert, String frag) async {
   final shaders = await Future.wait([
-    GlShader.fromFile(File("resources/shader/$vert.vert"), GlShaderType.vertex),
-    GlShader.fromFile(File("resources/shader/$frag.frag"), GlShaderType.fragment),
+    GlShader.fromFile(File('resources/shader/$vert.vert'), GlShaderType.vertex),
+    GlShader.fromFile(File('resources/shader/$frag.frag'), GlShaderType.fragment),
   ]);
 
   return GlProgram(name, shaders);

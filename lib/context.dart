@@ -9,7 +9,7 @@ class RenderContext {
   RenderContext(this.window, List<GlProgram> programs) {
     for (final program in programs) {
       if (_programStore[program.name] != null) {
-        throw ArgumentError("Duplicate program name ${program.name}", "programs");
+        throw ArgumentError('Duplicate program name ${program.name}', 'programs');
       }
 
       _programStore[program.name] = program;
@@ -18,7 +18,7 @@ class RenderContext {
 
   GlProgram findProgram(String name) {
     final program = _programStore[name];
-    if (program == null) throw StateError("Missing required program $name");
+    if (program == null) throw StateError('Missing required program $name');
 
     return program;
   }

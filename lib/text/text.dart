@@ -32,7 +32,7 @@ class Text {
   Text.string(String value, {TextStyle style = const TextStyle()}) : this([StyledString(value, style: style)]);
 
   Text(this._segments) {
-    if (_segments.isEmpty) throw ArgumentError("Text must have at least one segment");
+    if (_segments.isEmpty) throw ArgumentError('Text must have at least one segment');
   }
 
   List<ShapedGlyph> get glyphs => _shapedGlyphs;
@@ -43,7 +43,7 @@ class Text {
     int cursorX = 0, cursorY = 0;
 
     final features = malloc<hb_feature>();
-    "calt on".withAsNative((flag) => harfbuzz.feature_from_string(flag.cast(), -1, features));
+    'calt on'.withAsNative((flag) => harfbuzz.feature_from_string(flag.cast(), -1, features));
 
     for (final segment in _segments) {
       final segmentFont = fontLookup(segment.style.fontFamily);

@@ -57,7 +57,7 @@ class ChunkStorage {
   final Set<DiscretePosition> _scheduledChunks = HashSet();
 
   Future<void> pregen(ChunkGenWorkers workers, int radius, int verticalRange) async =>
-      await Future.wait(iterateRingColumns(radius, verticalRange).map((e) => _enqueue(workers, e)));
+      await Future.wait(iterateOutwards(radius, verticalRange).map((e) => _enqueue(workers, e)));
 
   void scheduleChunk(ChunkGenWorkers workers, DiscretePosition pos) {
     if (statusAt(pos) != ChunkStatus.empty) {
@@ -168,7 +168,7 @@ class SliceChunk implements Chunk {
 
 typedef ChunkGenWorkers = WorkerPool<DiscretePosition, Chunk>;
 Future<ChunkGenWorkers> createChunkGenWorkers(int size) {
-  return WorkerPool.create(() {}, _generateChunk, size, (idx) => "chunk-gen-worker-$idx");
+  return WorkerPool.create(() {}, _generateChunk, size, (idx) => 'chunk-gen-worker-$idx');
 }
 
 Chunk _generateChunk(DiscretePosition basePos) {

@@ -95,13 +95,12 @@ class ChunkLoadingSystem extends _$ChunkLoadingSystem {
     final cameraPos = positionMapper[tagManager.getEntity('active_camera')!].value;
     final chunks = world.chunks;
 
-    for (var chunkPos in iterateRingColumns(16, 8)) {
-      chunkPos = chunkPos.offset(
-        x: (cameraPos.x / 16).toInt(),
-        y: (cameraPos.y / 16).toInt(),
-        z: (cameraPos.z / 16).toInt(),
-      );
-
+    final cameraChunkPos = DiscretePosition(
+      (cameraPos.x / 16).toInt(),
+      (cameraPos.y / 16).toInt(),
+      (cameraPos.z / 16).toInt(),
+    );
+    for (final chunkPos in iterateOutwards(16, 8, basePos: cameraChunkPos)) {
       if (chunkManager.entityForChunk(chunkPos) != null) continue;
 
       final status = chunks.statusAt(chunkPos);
@@ -124,53 +123,67 @@ class ChunkLoadingSystem extends _$ChunkLoadingSystem {
 typedef CompileWorkers = WorkerPool<(Obj, ChunkStorage), BufferWriter>;
 
 @Generate(
-  EntityProcessingSystem,
-  allOf: [Position, ChunkDataComponent, ChunkMeshComponent],
+  EntitySystem,
+  mapper: [Position, ChunkDataComponent, ChunkMeshComponent],
+  manager: [TagManager, ChunkManager],
 )
 class ChunkRenderSystem extends _$ChunkRenderSystem {
-  static final cubeTexture = loadTexture("grass", mipmap: true);
-  static final cube = loadObj(File("resources/cube.obj"));
+  static final cubeTexture = loadTexture('grass', mipmap: true);
+  static final cube = loadObj(File('resources/cube.obj'));
 
   final Frustum _frustum = Frustum();
   final RenderContext _context;
   final CompileWorkers _compilers;
 
-  ChunkStorage? _chunks;
-
-  ChunkRenderSystem(this._context, this._compilers);
+  ChunkRenderSystem(this._context, this._compilers) : super(Aspect.empty());
 
   @override
-  void process() {
-    final program = _context.findProgram("terrain");
-    final worldProjection = world.properties["world_projection"] as Matrix4;
-    final viewMatrix = world.properties["view_matrix"] as Matrix4;
+  void processEntities(Iterable<int> entities) {
+    final program = _context.findProgram('terrain');
+    final worldProjection = world.properties['world_projection'] as Matrix4;
+    final viewMatrix = world.properties['view_matrix'] as Matrix4;
 
-    program.uniformMat4("uProjection", worldProjection);
-    program.uniformMat4("uView", viewMatrix);
-    program.uniformSampler("uTexture", cubeTexture, 0);
+    program.uniformMat4('uProjection', worldProjection);
+    program.uniformMat4('uView', viewMatrix);
+    program.uniformSampler('uTexture', cubeTexture, 0);
     program.use();
 
+    final chunkStorage = world.chunks;
     _frustum.setFromMatrix(worldProjection * viewMatrix);
-    _chunks = world.chunks;
-    super.process();
-    _chunks = null;
+
+    final cameraPos = positionMapper[tagManager.getEntity('active_camera')!].value;
+    final cameraChunkPos = DiscretePosition(
+      (cameraPos.x / 16).toInt(),
+      (cameraPos.y / 16).toInt(),
+      (cameraPos.z / 16).toInt(),
+    );
+
+    for (final chunkPos in iterateOutwards(16, 8, basePos: cameraChunkPos)) {
+      final entity = chunkManager.entityForChunk(chunkPos);
+      if (entity == null) continue;
+
+      final chunkBasePos = chunkPos.toVec3()..scale(16);
+      if (!_frustum.intersectsWithAabb3(Aabb3.minMax(chunkBasePos, chunkBasePos + Vector3.all(16)))) {
+        continue;
+      }
+
+      renderChunk(
+        chunkStorage,
+        positionMapper[entity],
+        chunkDataComponentMapper[entity],
+        chunkMeshComponentMapper[entity],
+      );
+    }
   }
 
-  @override
-  void processEntity(int entity, Position pos, ChunkDataComponent data, ChunkMeshComponent mesh) {
-    final chunkBuffer = mesh.buffer ??= MeshBuffer(terrainVertexDescriptor, _context.findProgram("terrain"));
-    final chunkStorage = _chunks!;
-
-    final chunkBasePos = data.pos.toVec3()..scale(16);
-    if (!_frustum.intersectsWithAabb3(Aabb3.minMax(chunkBasePos, chunkBasePos + Vector3.all(16)))) {
-      return;
-    }
-
+  void renderChunk(ChunkStorage chunks, Position pos, ChunkDataComponent data, ChunkMeshComponent mesh) {
     switch (mesh.state) {
       case ChunkMeshState.empty:
-        if (_compilers.taskCount > _compilers.size * 4 || chunkStorage.statusAt(data.pos) != ChunkStatus.loaded) return;
+        if (_compilers.taskCount > _compilers.size * 4 || chunks.statusAt(data.pos) != ChunkStatus.loaded) return;
 
-        _compilers.process((cube, chunkStorage.maskChunkForCompilation(data.pos))).then((buffer) {
+        _compilers.process((cube, chunks.maskChunkForCompilation(data.pos))).then((buffer) {
+          final chunkBuffer = mesh.buffer ??= MeshBuffer(terrainVertexDescriptor, _context.findProgram('terrain'));
+
           chunkBuffer.clear();
           chunkBuffer.buffer = buffer;
 
@@ -178,10 +191,11 @@ class ChunkRenderSystem extends _$ChunkRenderSystem {
           mesh.state = ChunkMeshState.ready;
         });
       case ChunkMeshState.ready:
+        final chunkBuffer = mesh.buffer!;
         if (chunkBuffer.isEmpty) return;
 
         final offset = 1.0 - min((world.time(1) - mesh.spawnTime), 1.0);
-        chunkBuffer.program.uniform3vf("uOffset", pos.value - (Vector3(0, 16, 0) * offset.easeQuartic()));
+        chunkBuffer.program.uniform3vf('uOffset', pos.value - (Vector3(0, 16, 0) * offset.easeQuartic()));
 
         chunkBuffer.drawAndCount();
       default:
@@ -190,7 +204,7 @@ class ChunkRenderSystem extends _$ChunkRenderSystem {
 }
 
 Future<CompileWorkers> createChunkCompileWorkers(int size) {
-  return WorkerPool.create(() => initDiamondGL(), _compileChunk, size, (idx) => "chunk-compile-worker-$idx");
+  return WorkerPool.create(() => initDiamondGL(), _compileChunk, size, (idx) => 'chunk-compile-worker-$idx');
 }
 
 BufferWriter _compileChunk((Obj, ChunkStorage) command) {
