@@ -98,7 +98,6 @@ Future<void> main(List<String> arguments) async {
     vSync = !vSync;
   });
 
-  // window.toggleFullscreen();
   window.onKey.where((event) => event.key == glfwKeyF11 && event.action == glfwPress).listen((event) {
     window.toggleFullscreen();
   });
@@ -112,8 +111,8 @@ Future<void> main(List<String> arguments) async {
   // glisco, 29.03.2024
   glfw.makeContextCurrent(nullptr);
   final (chunkCompilers, chunkGenWorkers) = await (
-    createChunkCompileWorkers(min(Platform.numberOfProcessors ~/ 2, 8)),
-    createChunkGenWorkers(min(Platform.numberOfProcessors ~/ 2, 8))
+    createChunkCompileWorkers(min(Platform.numberOfProcessors, 8)),
+    createChunkGenWorkers(min(Platform.numberOfProcessors, 8))
   ).wait;
   glfw.makeContextCurrent(window.handle);
 
@@ -241,15 +240,9 @@ Future<void> main(List<String> arguments) async {
     ..vertex(Vector3(15, 0, 0), 1, 0, Color.white)
     ..upload();
 
-  var frames = 0, lastFps = 0;
-  var ticks = 0, lastTicks = 0;
-  var lastTime = glfw.getTime(), passedTime = 0.0;
-  var logicTimer = 0.0;
-
   final fb = GlFramebuffer.trackingWindow(window);
 
-  renderContext.findProgram('terrain').uniform4vf('uFogColor', Color.white.asVector());
-  renderContext.findProgram('terrain').uniform1f('uFogStart', 175);
+  renderContext.findProgram('terrain').uniform1f('uFogStart', 220);
   renderContext.findProgram('terrain').uniform1f('uFogEnd', 250);
 
   renderContext.findProgram('terrain').uniformSampler('uSky', fb.colorAttachment, 1);
@@ -259,10 +252,18 @@ Future<void> main(List<String> arguments) async {
     renderContext.findProgram('terrain').uniform2f('uSkySize', event.width.toDouble(), event.height.toDouble());
   });
 
+  var frames = 0, lastFps = 0;
+  var ticks = 0, lastTicks = 0;
+  var lastTime = glfw.getTime(), passedTime = 0.0;
+  var logicTimer = 0.0;
+  var microtaskDeltas = <double>[], avgMicrotaskDelta = 0.0;
+
   while (glfw.windowShouldClose(window.handle) != glfwTrue) {
     // execute scheduled microtasks
+    final beforeMicrotasks = glfw.getTime();
     await Future.delayed(Duration.zero);
-    // gl.enable(glCullFace);
+    final microtaskDelta = glfw.getTime() - beforeMicrotasks;
+    gl.enable(glCullFace);
 
     gl.clearColor(0, 0, 0, 0);
     gl.clear(glColorBufferBit | glDepthBufferBit | glStencilBufferBit);
@@ -339,6 +340,9 @@ Future<void> main(List<String> arguments) async {
     gl.blendFunc(glSrcAlpha, glOneMinusSrcAlpha);
 
     String compact(Vector values) => values.storage.map((e) => e.toStringAsFixed(3)).join(", ");
+    textRenderer.drawText(5, window.height - 165,
+        Text.string("Microtask delta: ${avgMicrotaskDelta.toStringAsFixed(3)} ms"), 16, uiProjection,
+        color: Color.black);
     textRenderer.drawText(
         5, window.height - 145, Text.string("Entities: ${world.entityManager.activeEntityCount}"), 16, uiProjection,
         color: Color.black);
@@ -359,12 +363,17 @@ Future<void> main(List<String> arguments) async {
 
     window.nextFrame();
 
-    if (passedTime >= 1) {
+    if (passedTime >= .5) {
       lastFps = frames;
       frames = 0;
       lastTicks = ticks;
       ticks = 0;
       passedTime -= 1;
+
+      avgMicrotaskDelta = microtaskDeltas.reduce((a, b) => a + b) / microtaskDeltas.length * 1000;
+      microtaskDeltas.clear();
+    } else {
+      microtaskDeltas.add(microtaskDelta);
     }
 
     passedTime += delta;

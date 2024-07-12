@@ -56,11 +56,8 @@ class ChunkStorage {
   final Map<DiscretePosition, Chunk> _chunks = HashMap();
   final Set<DiscretePosition> _scheduledChunks = HashSet();
 
-  void generate(ChunkGenWorkers workers, int radius, int verticalRange) {
-    for (final chunkPos in iterateRingColumns(radius, verticalRange)) {
-      _enqueue(workers, chunkPos);
-    }
-  }
+  Future<void> pregen(ChunkGenWorkers workers, int radius, int verticalRange) async =>
+      await Future.wait(iterateRingColumns(radius, verticalRange).map((e) => _enqueue(workers, e)));
 
   void scheduleChunk(ChunkGenWorkers workers, DiscretePosition pos) {
     if (statusAt(pos) != ChunkStatus.empty) {
@@ -71,9 +68,9 @@ class ChunkStorage {
     _enqueue(workers, pos);
   }
 
-  void _enqueue(ChunkGenWorkers workers, DiscretePosition chunkPos) {
+  Future<void> _enqueue(ChunkGenWorkers workers, DiscretePosition chunkPos) {
     _scheduledChunks.add(chunkPos);
-    workers.process(chunkPos).then((chunk) {
+    return workers.process(chunkPos).then((chunk) {
       _chunks[chunkPos] = chunk;
       _scheduledChunks.remove(chunkPos);
     });
@@ -182,7 +179,7 @@ Chunk _generateChunk(DiscretePosition basePos) {
     for (var blockY = 0; blockY < Chunk.size; blockY++) {
       for (var blockZ = 0; blockZ < Chunk.size; blockZ++) {
         if (basePos.y + blockY <
-            _noise.getNoise2((basePos.x + blockX).toDouble(), (basePos.z + blockZ).toDouble()) * 30) {
+            _noise.getNoise2((basePos.x + blockX).toDouble(), (basePos.z + blockZ).toDouble()) * 15) {
           chunk[DiscretePosition(blockX, blockY, blockZ)] = 1;
         }
       }

@@ -4,7 +4,6 @@ uniform sampler2D uTexture;
 uniform sampler2D uSky;
 uniform vec2 uSkySize;
 
-uniform vec4 uFogColor;
 uniform float uFogStart;
 uniform float uFogEnd;
 
