@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:collection';
 import 'dart:typed_data';
 
-import 'package:fast_noise/fast_noise.dart';
+import 'package:fast_noise/fast_noise.dart' hide DoubleExtension;
 import 'package:logging/logging.dart';
 import 'package:vector_math/vector_math.dart';
 
@@ -16,6 +16,11 @@ class DiscretePosition {
   const DiscretePosition.origin() : this(0, 0, 0);
 
   DiscretePosition offset({int x = 0, int y = 0, int z = 0}) => DiscretePosition(this.x + x, this.y + y, this.z + z);
+  DiscretePosition move(AxisDirection direction, [int by = 1]) => offset(
+        x: direction.offset.x * by,
+        y: direction.offset.y * by,
+        z: direction.offset.z * by,
+      );
 
   DiscretePosition operator +(DiscretePosition other) => DiscretePosition(x + other.x, y + other.y, z + other.z);
   DiscretePosition operator -(DiscretePosition other) => DiscretePosition(x - other.x, y - other.y, z - other.z);
@@ -27,9 +32,22 @@ class DiscretePosition {
   int get hashCode => (y + z * 31) * 31 + x;
   @override
   bool operator ==(Object other) => other is DiscretePosition && x == other.x && y == other.y && z == other.z;
+
+  @override
+  String toString() => '[$x, $y, $z]';
 }
 
-enum AxisDirection { positiveX, negativeX, positiveY, negativeY, positiveZ, negativeZ }
+enum AxisDirection {
+  positiveX(DiscretePosition(1, 0, 0)),
+  negativeX(DiscretePosition(-1, 0, 0)),
+  positiveY(DiscretePosition(0, 1, 0)),
+  negativeY(DiscretePosition(0, -1, 0)),
+  positiveZ(DiscretePosition(0, 0, 1)),
+  negativeZ(DiscretePosition(0, 0, -1));
+
+  final DiscretePosition offset;
+  const AxisDirection(this.offset);
+}
 
 final _noise = ValueNoise(seed: 1337);
 
@@ -50,7 +68,65 @@ class Chunk {
 
 enum ChunkStatus { empty, scheduled, loaded }
 
-class ChunkStorage {
+mixin ChunkView {
+  Chunk chunkAt(DiscretePosition pos);
+  ChunkStatus statusAt(DiscretePosition pos);
+
+  bool hasBlockAt(DiscretePosition pos) => chunkAt(worldPosToChunkPos(pos)).hasBlockAt(Chunk.worldPosToLocalPos(pos));
+
+  (DiscretePosition, int)? raycast(Vector3 from, Vector3 to) {
+    // from = Vector3.copy(from);
+    // to = Vector3.copy(to);
+
+    // to.x = to.x.lerp(-1e-5, from.x);
+    // to.y = to.y.lerp(-1e-5, from.y);
+    // to.z = to.z.lerp(-1e-5, from.z);
+    // from.x = from.x.lerp(-1e-5, to.x);
+    // from.y = from.y.lerp(-1e-5, to.y);
+    // from.z = from.z.lerp(-1e-5, to.z);
+    final ray = to - from;
+
+    final stepX = ray.x.sign.toInt(), stepY = ray.y.sign.toInt(), stepZ = ray.z.sign.toInt();
+    final tDeltaX = stepX == 0 ? double.maxFinite : stepX / ray.x,
+        tDeltaY = stepY == 0 ? double.maxFinite : stepY / ray.y,
+        tDeltaZ = stepZ == 0 ? double.maxFinite : stepZ / ray.z;
+
+    var tMaxX = tDeltaX * (stepX > 0 ? 1 - from.x % 1 : from.x % 1),
+        tMaxY = tDeltaY * (stepY > 0 ? 1 - from.y % 1 : from.y % 1),
+        tMaxZ = tDeltaZ * (stepZ > 0 ? 1 - from.z % 1 : from.z % 1);
+
+    var x = from.x.floor(), y = from.y.floor(), z = from.z.floor();
+    while (tMaxX <= 1.0 || tMaxY <= 1.0 || tMaxZ <= 1.0) {
+      if (tMaxX < tMaxY) {
+        if (tMaxX < tMaxZ) {
+          x += stepX;
+          tMaxX += tDeltaX;
+        } else {
+          z += stepZ;
+          tMaxZ += tDeltaZ;
+        }
+      } else if (tMaxY < tMaxZ) {
+        y += stepY;
+        tMaxY += tDeltaY;
+      } else {
+        z += stepZ;
+        tMaxZ += tDeltaZ;
+      }
+
+      final pos = DiscretePosition(x, y, z);
+      if (hasBlockAt(pos)) {
+        return (pos, chunkAt(worldPosToChunkPos(pos))[Chunk.worldPosToLocalPos(pos)]);
+      }
+    }
+
+    return null;
+  }
+
+  static DiscretePosition worldPosToChunkPos(DiscretePosition pos) =>
+      DiscretePosition(pos.x >> 4, pos.y >> 4, pos.z >> 4);
+}
+
+class ChunkStorage with ChunkView {
   static final _logger = Logger('game.chunk_storage');
 
   final Map<DiscretePosition, Chunk> _chunks = HashMap();
@@ -76,18 +152,17 @@ class ChunkStorage {
     });
   }
 
-  ChunkStorage maskChunkForCompilation(DiscretePosition chunkPos) => MaskedChunkStorage.ofChunk(this, chunkPos);
+  ChunkView maskChunkForCompilation(DiscretePosition chunkPos) => MaskedChunkView.ofChunk(this, chunkPos);
 
+  @override
   Chunk chunkAt(DiscretePosition pos) => _chunks[pos] ?? const EmptyChunk();
+
+  @override
   ChunkStatus statusAt(DiscretePosition pos) => _chunks.containsKey(pos)
       ? ChunkStatus.loaded
       : _scheduledChunks.contains(pos)
           ? ChunkStatus.scheduled
           : ChunkStatus.empty;
-  bool hasBlockAt(DiscretePosition pos) => chunkAt(worldPosToChunkPos(pos)).hasBlockAt(Chunk.worldPosToLocalPos(pos));
-
-  static DiscretePosition worldPosToChunkPos(DiscretePosition pos) =>
-      DiscretePosition(pos.x >> 4, pos.y >> 4, pos.z >> 4);
 }
 
 class EmptyChunk implements Chunk {
@@ -105,10 +180,11 @@ class EmptyChunk implements Chunk {
   bool hasBlockAt(DiscretePosition pos) => false;
 }
 
-class MaskedChunkStorage extends ChunkStorage {
-  MaskedChunkStorage._();
-  factory MaskedChunkStorage.ofChunk(ChunkStorage storage, DiscretePosition chunkPos) {
-    final masked = MaskedChunkStorage._();
+// TODO optimize
+class MaskedChunkView extends ChunkStorage {
+  MaskedChunkView._();
+  factory MaskedChunkView.ofChunk(ChunkStorage storage, DiscretePosition chunkPos) {
+    final masked = MaskedChunkView._();
 
     masked._chunks[DiscretePosition.origin()] = storage.chunkAt(chunkPos);
 

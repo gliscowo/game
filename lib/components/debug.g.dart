@@ -34,3 +34,29 @@ abstract class _$DebugCameraMovementSystem extends EntitySystem {
   void processEntity(int entity, CameraConfiguration cameraConfiguration,
       Position position, Velocity velocity);
 }
+
+abstract class _$DebugCubeVisualizerSystem extends EntitySystem {
+  late final Mapper<Position> positionMapper;
+  late final Mapper<DebugCubeRenderer> debugCubeRendererMapper;
+  _$DebugCubeVisualizerSystem()
+      : super(Aspect.empty()..allOf([Position, DebugCubeRenderer]));
+  @override
+  void initialize() {
+    super.initialize();
+    positionMapper = Mapper<Position>(world);
+    debugCubeRendererMapper = Mapper<DebugCubeRenderer>(world);
+  }
+
+  @override
+  void processEntities(Iterable<int> entities) {
+    final positionMapper = this.positionMapper;
+    final debugCubeRendererMapper = this.debugCubeRendererMapper;
+    for (final entity in entities) {
+      processEntity(
+          entity, positionMapper[entity], debugCubeRendererMapper[entity]);
+    }
+  }
+
+  void processEntity(
+      int entity, Position position, DebugCubeRenderer debugCubeRenderer);
+}

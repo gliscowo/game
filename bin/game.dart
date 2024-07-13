@@ -13,11 +13,11 @@ import 'package:game/components/camera.dart';
 import 'package:game/components/chunk.dart';
 import 'package:game/components/debug.dart';
 import 'package:game/components/fysik.dart';
+import 'package:game/components/game_world.dart';
 import 'package:game/components/transform.dart';
 import 'package:game/context.dart';
 import 'package:game/game.dart';
 import 'package:game/input.dart';
-import 'package:game/obj.dart';
 import 'package:game/text/text.dart';
 import 'package:game/text/text_renderer.dart';
 import 'package:game/texture.dart';
@@ -73,6 +73,7 @@ Future<void> main(List<String> arguments) async {
       vertFragProgram('gui_pos_uv_color', 'gui_pos_uv_color', 'gui_pos_uv_color'),
       vertFragProgram('text', 'text', 'text'),
       vertFragProgram('terrain', 'terrain', 'terrain'),
+      vertFragProgram('debug_entity', 'debug_entity', 'debug_entity'),
     ]),
   );
 
@@ -113,11 +114,11 @@ Future<void> main(List<String> arguments) async {
   glfw.makeContextCurrent(nullptr);
   final (chunkCompilers, chunkGenWorkers) = await (
     createChunkCompileWorkers(min(Platform.numberOfProcessors, 8)),
-    createChunkGenWorkers(min(Platform.numberOfProcessors, 8))
+    createChunkGenWorkers(Platform.numberOfProcessors)
   ).wait;
   glfw.makeContextCurrent(window.handle);
 
-  final world = World();
+  final world = GameWorld();
   final tags = TagManager();
   world.addManager(tags);
   world.addManager(ChunkManager());
@@ -131,8 +132,9 @@ Future<void> main(List<String> arguments) async {
     });
   }
 
+  world.addSystem(ChunkLoadingSystem(chunkGenWorkers), group: renderGroup);
   world.addSystem(ChunkRenderSystem(renderContext, chunkCompilers), group: renderGroup);
-  world.addSystem(ChunkLoadingSystem(chunkGenWorkers), group: logicGroup);
+  world.addSystem(DebugCubeVisualizerSystem(renderContext), group: renderGroup);
   world.addSystem(VelocitySystem(), group: logicGroup);
   world.addSystem(AirDragSystem(), group: logicGroup);
   world.chunks = ChunkStorage();
@@ -148,19 +150,6 @@ Future<void> main(List<String> arguments) async {
     ]),
     'active_camera',
   );
-
-  // world.chunks.generate(chunkGenWorkers, 12, 4);
-  // iterateRingColumns(12, 4, (chunkPos) {
-  //   world.createEntity([
-  //     Position(
-  //       x: Chunk.size * chunkPos.x.toDouble(),
-  //       y: Chunk.size * chunkPos.y.toDouble(),
-  //       z: Chunk.size * chunkPos.z.toDouble(),
-  //     ),
-  //     ChunkDataComponent(chunkPos),
-  //     ChunkMeshComponent(),
-  //   ]);
-  // });
 
   final cameraMapper = Mapper<CameraConfiguration>(world), posMapper = Mapper<Position>(world);
 
@@ -178,47 +167,8 @@ Future<void> main(List<String> arguments) async {
   });
 
   window.onMouseButton
-      .where((event) => event.button == glfwMouseButtonRight && event.action == glfwPress)
-      .listen((event) {
-    final cameraPos = posMapper[tags.getEntity('active_camera')!];
-    final cameraBlockPos = DiscretePosition(cameraPos.x.toInt(), cameraPos.y.toInt(), cameraPos.z.toInt());
-
-    final cameraChunkPos = ChunkStorage.worldPosToChunkPos(cameraBlockPos);
-    final chunk = world.chunks.chunkAt(cameraChunkPos);
-
-    if (chunk is! EmptyChunk) {
-      chunk[Chunk.worldPosToLocalPos(cameraBlockPos)] = 1;
-      world.componentManager
-          .getComponent<ChunkMeshComponent>(world.getManager<ChunkManager>().entityForChunk(cameraChunkPos)!,
-              ComponentType.getTypeFor(ChunkMeshComponent))!
-          .state = ChunkMeshState.empty;
-    }
-  });
-
-  final chyzTexture = loadTexture('chyzman');
-  final chyz = loadObj(File('resources/chyzman.obj'));
-  final chyzBuffer = MeshBuffer(terrainVertexDescriptor, renderContext.findProgram('terrain'));
-  for (final Tri(:vertices, :normals, :uvs) in chyz.tris) {
-    chyzBuffer.vertex(
-      chyz.vertices[vertices.$1 - 1] + Vector3(8, .5, 8),
-      chyz.normals[normals.$1 - 1],
-      chyz.uvs[uvs.$1 - 1].x,
-      1 - chyz.uvs[uvs.$1 - 1].y,
-    );
-    chyzBuffer.vertex(
-      chyz.vertices[vertices.$2 - 1] + Vector3(8, .5, 8),
-      chyz.normals[normals.$2 - 1],
-      chyz.uvs[uvs.$2 - 1].x,
-      1 - chyz.uvs[uvs.$2 - 1].y,
-    );
-    chyzBuffer.vertex(
-      chyz.vertices[vertices.$3 - 1] + Vector3(8, .5, 8),
-      chyz.normals[normals.$3 - 1],
-      chyz.uvs[uvs.$3 - 1].x,
-      1 - chyz.uvs[uvs.$3 - 1].y,
-    );
-  }
-  chyzBuffer.upload();
+      .where((event) => event.action == glfwPress)
+      .listen((event) => _blockInteraction(posMapper, cameraMapper, world, tags, event));
 
   final skyBuffer = MeshBuffer(posColorVertexDescriptor, renderContext.findProgram('gui_pos_color'));
   skyBuffer
@@ -317,12 +267,27 @@ Future<void> main(List<String> arguments) async {
     world.properties['world_projection'] = worldProjection;
     world.process(renderGroup);
 
-    chyzBuffer.program.uniformMat4('uProjection', worldProjection);
-    chyzBuffer.program.uniformMat4('uView', viewMatrix);
-    chyzBuffer.program.uniform3f('uOffset', 0, 0, 0);
-    chyzBuffer.program.uniformSampler('uTexture', chyzTexture, 0);
-    chyzBuffer.program.use();
-    chyzBuffer.drawAndCount();
+    final cameraPos = posMapper[tags.getEntity('active_camera')!];
+    final raycastResult = world.chunks.raycast(cameraPos.value, cameraPos.value + camera.forward * 10);
+
+    if (raycastResult != null) {
+      final hitPos = raycastResult.$1.toVec3() + Vector3.all(.5);
+      world.createEntity([
+        Position.fromVector(hitPos),
+        DebugCubeRenderer(Color.white.copyWith(a: .35), scale: 1.005),
+      ]);
+    }
+
+    gl.clear(glDepthBufferBit);
+
+    world.createEntity([
+      Position.fromVector(cameraPos.value),
+      DebugCubeRenderer(Color.blue, scale: .25),
+    ]);
+    world.createEntity([
+      Position.fromVector(cameraPos.value + camera.forward * 10),
+      DebugCubeRenderer(Color.green, scale: .25),
+    ]);
 
     gl.clear(glDepthBufferBit);
 
@@ -341,6 +306,13 @@ Future<void> main(List<String> arguments) async {
     gl.blendFunc(glSrcAlpha, glOneMinusSrcAlpha);
 
     String compact(Vector values) => values.storage.map((e) => e.toStringAsFixed(3)).join(', ');
+    textRenderer.drawText(
+        5,
+        window.height - 185,
+        Text.string('Tasks (meshing/generation): ${chunkCompilers.taskCount} / ${chunkGenWorkers.taskCount}'),
+        16,
+        uiProjection,
+        color: Color.black);
     textRenderer.drawText(5, window.height - 165,
         Text.string('Microtask delta: ${avgMicrotaskDelta.toStringAsFixed(3)} ms'), 16, uiProjection,
         color: Color.black);
@@ -371,7 +343,7 @@ Future<void> main(List<String> arguments) async {
       ticks = 0;
       passedTime -= 1;
 
-      avgMicrotaskDelta = microtaskDeltas.reduce((a, b) => a + b) / microtaskDeltas.length * 1000;
+      avgMicrotaskDelta = microtaskDeltas.fold(0.0, (a, b) => a + b) / microtaskDeltas.length * 1000;
       microtaskDeltas.clear();
     } else {
       microtaskDeltas.add(microtaskDelta);
@@ -406,4 +378,33 @@ Future<GlProgram> vertFragProgram(String name, String vert, String frag) async {
   ]);
 
   return GlProgram(name, shaders);
+}
+
+void _blockInteraction(
+  Mapper<Position> posMapper,
+  Mapper<CameraConfiguration> cameraMapper,
+  World world,
+  TagManager tags,
+  MouseInputEvent event,
+) {
+  final cameraPos = posMapper[tags.getEntity('active_camera')!].value;
+  var cameraBlockPos =
+      world.chunks.raycast(cameraPos, cameraPos + cameraMapper[tags.getEntity('active_camera')!].forward * 10)?.$1;
+
+  if (cameraBlockPos == null) return;
+  if (event.button == glfwMouseButtonRight) cameraBlockPos = cameraBlockPos.offset(y: 1);
+
+  final cameraChunkPos = ChunkView.worldPosToChunkPos(cameraBlockPos);
+  final chunk = world.chunks.chunkAt(cameraChunkPos);
+
+  if (chunk is! EmptyChunk) {
+    chunk[Chunk.worldPosToLocalPos(cameraBlockPos)] = event.button == glfwMouseButtonRight ? 1 : 0;
+  }
+
+  for (final pos in [cameraChunkPos, ...AxisDirection.values.map((d) => cameraChunkPos + d.offset)]) {
+    world.componentManager
+        .getComponent<ChunkMeshComponent>(
+            world.getManager<ChunkManager>().entityForChunk(pos)!, ComponentType.getTypeFor(ChunkMeshComponent))!
+        .needsRebuild = true;
+  }
 }

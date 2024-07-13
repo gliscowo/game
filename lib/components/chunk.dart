@@ -29,11 +29,16 @@ enum ChunkMeshState { empty, building, ready }
 
 class ChunkMeshComponent extends Component {
   final double spawnTime;
+
   MeshBuffer<TerrainVertexFunction>? buffer;
+  bool needsRebuild = false;
+
   ChunkMeshState state = ChunkMeshState.empty;
 
   ChunkMeshComponent(this.spawnTime);
 }
+
+const renderDistance = (horizontal: 8, vertical: 6);
 
 class ChunkManager extends Manager {
   final Map<DiscretePosition, int> _chunkEntitiesByPosition = HashMap();
@@ -64,27 +69,26 @@ class ChunkManager extends Manager {
 }
 
 @Generate(
-  IntervalEntityProcessingSystem,
+  EntityProcessingSystem,
   allOf: [Position, ChunkDataComponent, ChunkMeshComponent],
   manager: [ChunkManager, TagManager],
 )
 class ChunkLoadingSystem extends _$ChunkLoadingSystem {
   final ChunkGenWorkers _generators;
 
-  ChunkLoadingSystem(this._generators) : super(.5);
+  ChunkLoadingSystem(this._generators);
 
   @override
-  void processEntity(int entity) {
-    final pos = chunkDataComponentMapper[entity].pos;
+  void processEntity(int entity, Position pos, ChunkDataComponent data, ChunkMeshComponent mesh) {
     final cameraPos = positionMapper[tagManager.getEntity('active_camera')!].value;
 
-    const maxHorizontal = 17;
-    const maxVertical = 9;
-    if ((pos.x - cameraPos.x / 16).abs() < maxHorizontal &&
-        (pos.z - cameraPos.z / 16).abs() < maxHorizontal &&
-        (pos.y - cameraPos.y / 16).abs() < maxVertical) return;
+    final maxHorizontal = renderDistance.horizontal + 1;
+    final maxVertical = renderDistance.vertical + 1;
+    if ((data.pos.x - cameraPos.x / 16).abs() < maxHorizontal &&
+        (data.pos.z - cameraPos.z / 16).abs() < maxHorizontal &&
+        (data.pos.y - cameraPos.y / 16).abs() < maxVertical) return;
 
-    chunkMeshComponentMapper[entity].buffer?.delete();
+    mesh.buffer?.delete();
     world.deleteEntity(entity);
   }
 
@@ -100,13 +104,14 @@ class ChunkLoadingSystem extends _$ChunkLoadingSystem {
       (cameraPos.y / 16).toInt(),
       (cameraPos.z / 16).toInt(),
     );
-    for (final chunkPos in iterateOutwards(16, 8, basePos: cameraChunkPos)) {
+    for (final chunkPos
+        in iterateOutwards(renderDistance.horizontal, renderDistance.vertical, basePos: cameraChunkPos)) {
       if (chunkManager.entityForChunk(chunkPos) != null) continue;
 
       final status = chunks.statusAt(chunkPos);
       switch (status) {
         case ChunkStatus.empty:
-          if (_generators.taskCount > _generators.size * 128) continue;
+          if (_generators.taskCount >= _generators.size * 8) continue;
           chunks.scheduleChunk(_generators, chunkPos);
         case ChunkStatus.loaded:
           world.createEntity([
@@ -120,7 +125,7 @@ class ChunkLoadingSystem extends _$ChunkLoadingSystem {
   }
 }
 
-typedef CompileWorkers = WorkerPool<(Obj, ChunkStorage), BufferWriter>;
+typedef CompileWorkers = WorkerPool<(Obj, ChunkView), BufferWriter>;
 
 @Generate(
   EntitySystem,
@@ -158,7 +163,8 @@ class ChunkRenderSystem extends _$ChunkRenderSystem {
       (cameraPos.z / 16).toInt(),
     );
 
-    for (final chunkPos in iterateOutwards(16, 8, basePos: cameraChunkPos)) {
+    for (final chunkPos
+        in iterateOutwards(renderDistance.horizontal, renderDistance.vertical, basePos: cameraChunkPos)) {
       final entity = chunkManager.entityForChunk(chunkPos);
       if (entity == null) continue;
 
@@ -167,7 +173,7 @@ class ChunkRenderSystem extends _$ChunkRenderSystem {
         continue;
       }
 
-      renderChunk(
+      _renderChunk(
         chunkStorage,
         positionMapper[entity],
         chunkDataComponentMapper[entity],
@@ -176,21 +182,19 @@ class ChunkRenderSystem extends _$ChunkRenderSystem {
     }
   }
 
-  void renderChunk(ChunkStorage chunks, Position pos, ChunkDataComponent data, ChunkMeshComponent mesh) {
+  void _renderChunk(ChunkStorage chunks, Position pos, ChunkDataComponent data, ChunkMeshComponent mesh) {
     switch (mesh.state) {
       case ChunkMeshState.empty:
-        if (_compilers.taskCount > _compilers.size * 4 || chunks.statusAt(data.pos) != ChunkStatus.loaded) return;
+        if (chunks.statusAt(data.pos) != ChunkStatus.loaded) return;
 
-        _compilers.process((cube, chunks.maskChunkForCompilation(data.pos))).then((buffer) {
-          final chunkBuffer = mesh.buffer ??= MeshBuffer(terrainVertexDescriptor, _context.findProgram('terrain'));
-
-          chunkBuffer.clear();
-          chunkBuffer.buffer = buffer;
-
-          chunkBuffer.upload();
-          mesh.state = ChunkMeshState.ready;
-        });
+        if (_tryScheduleRebuild(chunks, data, mesh)) {
+          mesh.state = ChunkMeshState.building;
+        }
       case ChunkMeshState.ready:
+        if (mesh.needsRebuild && _tryScheduleRebuild(chunks, data, mesh)) {
+          mesh.needsRebuild = false;
+        }
+
         final chunkBuffer = mesh.buffer!;
         if (chunkBuffer.isEmpty) return;
 
@@ -201,19 +205,34 @@ class ChunkRenderSystem extends _$ChunkRenderSystem {
       default:
     }
   }
+
+  bool _tryScheduleRebuild(ChunkStorage chunks, ChunkDataComponent data, ChunkMeshComponent mesh) {
+    if (_compilers.taskCount >= _compilers.size * 4) return false;
+
+    _compilers.process((cube, chunks.maskChunkForCompilation(data.pos))).then((buffer) {
+      final chunkBuffer = mesh.buffer ??= MeshBuffer(terrainVertexDescriptor, _context.findProgram('terrain'));
+
+      chunkBuffer.clear();
+      chunkBuffer.buffer = buffer;
+
+      chunkBuffer.upload();
+      mesh.state = ChunkMeshState.ready;
+    });
+    return true;
+  }
 }
 
 Future<CompileWorkers> createChunkCompileWorkers(int size) {
   return WorkerPool.create(() => initDiamondGL(), _compileChunk, size, (idx) => 'chunk-compile-worker-$idx');
 }
 
-BufferWriter _compileChunk((Obj, ChunkStorage) command) {
-  final (cube, storage) = command;
+BufferWriter _compileChunk((Obj, ChunkView) command) {
+  final (cube, chunks) = command;
 
   final buffer = BufferWriter();
   final builder = terrainVertexDescriptor.createBuilder(buffer);
 
-  final chunk = storage.chunkAt(DiscretePosition.origin());
+  final chunk = chunks.chunkAt(DiscretePosition.origin());
   for (var x = 0; x < Chunk.size; x++) {
     for (var y = 0; y < Chunk.size; y++) {
       for (var z = 0; z < Chunk.size; z++) {
@@ -225,31 +244,31 @@ BufferWriter _compileChunk((Obj, ChunkStorage) command) {
               vtx2 = cube.vertices[vertices.$2 - 1],
               vtx3 = cube.vertices[vertices.$3 - 1];
 
-          if (storage.hasBlockAt(pos.offset(x: -1)) && vtx1.x == -.5 && vtx2.x == -.5 && vtx3.x == -.5) {
+          if (chunks.hasBlockAt(pos.offset(x: -1)) && vtx1.x == -.5 && vtx2.x == -.5 && vtx3.x == -.5) {
             continue;
           }
 
-          if (storage.hasBlockAt(pos.offset(x: 1)) && vtx1.x == .5 && vtx2.x == .5 && vtx3.x == .5) {
+          if (chunks.hasBlockAt(pos.offset(x: 1)) && vtx1.x == .5 && vtx2.x == .5 && vtx3.x == .5) {
             continue;
           }
 
-          if (storage.hasBlockAt(pos.offset(z: -1)) && vtx1.z == -.5 && vtx2.z == -.5 && vtx3.z == -.5) {
+          if (chunks.hasBlockAt(pos.offset(z: -1)) && vtx1.z == -.5 && vtx2.z == -.5 && vtx3.z == -.5) {
             continue;
           }
 
-          if (storage.hasBlockAt(pos.offset(z: 1)) && vtx1.z == .5 && vtx2.z == .5 && vtx3.z == .5) {
+          if (chunks.hasBlockAt(pos.offset(z: 1)) && vtx1.z == .5 && vtx2.z == .5 && vtx3.z == .5) {
             continue;
           }
 
-          if (storage.hasBlockAt(pos.offset(y: -1)) && vtx1.y == -.5 && vtx2.y == -.5 && vtx3.y == -.5) {
+          if (chunks.hasBlockAt(pos.offset(y: -1)) && vtx1.y == -.5 && vtx2.y == -.5 && vtx3.y == -.5) {
             continue;
           }
 
-          if (storage.hasBlockAt(pos.offset(y: 1)) && vtx1.y == .5 && vtx2.y == .5 && vtx3.y == .5) {
+          if (chunks.hasBlockAt(pos.offset(y: 1)) && vtx1.y == .5 && vtx2.y == .5 && vtx3.y == .5) {
             continue;
           }
 
-          final offset = Vector3(x.toDouble(), y.toDouble(), z.toDouble());
+          final offset = Vector3(x.toDouble() + .5, y.toDouble() + .5, z.toDouble() + .5);
 
           builder(
             vtx1 + offset,
