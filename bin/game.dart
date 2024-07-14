@@ -70,7 +70,7 @@ Future<void> main(List<String> arguments) async {
       vertFragProgram('gui_pos_uv_color', 'gui_pos_uv_color', 'gui_pos_uv_color'),
       vertFragProgram('text', 'text', 'text'),
       vertFragProgram('terrain', 'terrain', 'terrain'),
-      vertFragProgram('debug_entity', 'debug_entity', 'debug_entity'),
+      vertFragProgram('debug_entity_instanced', 'debug_entity_instanced', 'debug_entity_instanced'),
       vertFragProgram('debug_lines', 'debug_lines', 'debug_lines'),
     ]),
   );

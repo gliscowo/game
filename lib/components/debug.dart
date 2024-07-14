@@ -6,7 +6,6 @@ import 'package:diamond_gl/diamond_gl.dart';
 import 'package:vector_math/vector_math.dart';
 
 import '../context.dart';
-import '../game.dart';
 import '../obj.dart';
 import '../vertex_descriptors.dart';
 import 'camera.dart';
@@ -40,6 +39,8 @@ class DebugCubeVisualizerSystem extends _$DebugCubeVisualizerSystem {
   final RenderContext _context;
 
   late final MeshBuffer<DebugEntityVertexFunction> _mesh;
+  late final GlBufferObject _ssbo;
+  late final BufferWriter _ssboBuffer;
 
   DebugCubeVisualizerSystem(this._context);
 
@@ -47,8 +48,11 @@ class DebugCubeVisualizerSystem extends _$DebugCubeVisualizerSystem {
   void initialize() {
     super.initialize();
 
+    _ssbo = GlBufferObject.shaderStorage();
+    _ssboBuffer = BufferWriter.native();
+
     final obj = loadObj(File('resources/cube.obj'));
-    _mesh = MeshBuffer(debugEntityVertexDescriptor, _context.findProgram('debug_entity'));
+    _mesh = MeshBuffer(debugEntityVertexDescriptor, _context.findProgram('debug_entity_instanced'));
     for (final Tri(:vertices) in obj.tris) {
       _mesh.vertex(obj.vertices[vertices.$1 - 1]);
       _mesh.vertex(obj.vertices[vertices.$2 - 1]);
@@ -60,22 +64,26 @@ class DebugCubeVisualizerSystem extends _$DebugCubeVisualizerSystem {
 
   @override
   void processEntities(Iterable<int> entities) {
+    _ssboBuffer.rewind();
+    super.processEntities(entities);
+    _ssbo.upload(_ssboBuffer, BufferUsage.streamDraw);
+
     final worldProjection = world.properties['world_projection'] as Matrix4;
     final viewMatrix = world.properties['view_matrix'] as Matrix4;
 
     _mesh.program.uniformMat4('uProjection', worldProjection);
     _mesh.program.uniformMat4('uView', viewMatrix);
+    _mesh.program.ssbo(0, _ssbo.id);
     _mesh.program.use();
 
-    super.processEntities(entities);
+    _mesh.drawInstanced(entities.length);
   }
 
   @override
   void processEntity(int entity, Position pos, DebugCubeRenderer cube) {
-    _mesh.program.uniform1f('uScale', cube.scale);
-    _mesh.program.uniform4vf('uSurfaceColor', cube.color.asVector());
-    _mesh.program.uniform3vf('uPos', pos.value);
-    _mesh.drawAndCount();
+    _ssboBuffer.float4(cube.color.r, cube.color.g, cube.color.b, cube.color.a);
+    _ssboBuffer.float3(pos.x, pos.y, pos.z);
+    _ssboBuffer.float(cube.scale);
 
     world.deleteEntity(entity);
   }

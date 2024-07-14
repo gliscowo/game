@@ -214,7 +214,7 @@ class ChunkRenderSystem extends _$ChunkRenderSystem {
 
       chunkBuffer.clear();
       chunkBuffer.buffer = buffer;
-      chunkBuffer.upload();
+      chunkBuffer.upload(dynamic: true);
 
       if (mesh.state == ChunkMeshState.building) {
         mesh.lastBuildTimestamp = world.time(renderGroup);
