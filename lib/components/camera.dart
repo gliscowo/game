@@ -18,6 +18,8 @@ class CameraConfiguration extends Component {
     setViewMatrix(_viewMatrix, pos.value, pos.value + forward, Vector3(0, 1, 0));
     return _viewMatrix;
   }
+
+  Ray viewRay(Vector3 pos) => Ray.originDirection(pos, forward);
 }
 
 // class SetProjectionSystem extends _$SetProjectionSystem {}

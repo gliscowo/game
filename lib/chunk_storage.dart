@@ -27,6 +27,7 @@ class DiscretePosition {
   DiscretePosition operator *(int scale) => DiscretePosition(x * scale, y * scale, z * scale);
 
   Vector3 toVec3() => Vector3(x.toDouble(), y.toDouble(), z.toDouble());
+  Vector3 centerToVec3() => Vector3(x + .5, y + .5, z + .5);
 
   @override
   int get hashCode => (y + z * 31) * 31 + x;
@@ -55,8 +56,6 @@ class Chunk {
   static const size = 16;
   final Uint8List blockStorage = Uint8List(size * size * size);
 
-  bool hasBlockAt(DiscretePosition pos) => blockStorage[_storageIndex(pos.x, pos.y, pos.z)] != 0;
-
   int _storageIndex(int x, int y, int z) => x << 8 | y << 4 | z;
 
   int operator [](DiscretePosition pos) => blockStorage[_storageIndex(pos.x, pos.y, pos.z)];
@@ -72,55 +71,7 @@ mixin ChunkView {
   Chunk chunkAt(DiscretePosition pos);
   ChunkStatus statusAt(DiscretePosition pos);
 
-  bool hasBlockAt(DiscretePosition pos) => chunkAt(worldPosToChunkPos(pos)).hasBlockAt(Chunk.worldPosToLocalPos(pos));
-
-  (DiscretePosition, int)? raycast(Vector3 from, Vector3 to) {
-    // from = Vector3.copy(from);
-    // to = Vector3.copy(to);
-
-    // to.x = to.x.lerp(-1e-5, from.x);
-    // to.y = to.y.lerp(-1e-5, from.y);
-    // to.z = to.z.lerp(-1e-5, from.z);
-    // from.x = from.x.lerp(-1e-5, to.x);
-    // from.y = from.y.lerp(-1e-5, to.y);
-    // from.z = from.z.lerp(-1e-5, to.z);
-    final ray = to - from;
-
-    final stepX = ray.x.sign.toInt(), stepY = ray.y.sign.toInt(), stepZ = ray.z.sign.toInt();
-    final tDeltaX = stepX == 0 ? double.maxFinite : stepX / ray.x,
-        tDeltaY = stepY == 0 ? double.maxFinite : stepY / ray.y,
-        tDeltaZ = stepZ == 0 ? double.maxFinite : stepZ / ray.z;
-
-    var tMaxX = tDeltaX * (stepX > 0 ? 1 - from.x % 1 : from.x % 1),
-        tMaxY = tDeltaY * (stepY > 0 ? 1 - from.y % 1 : from.y % 1),
-        tMaxZ = tDeltaZ * (stepZ > 0 ? 1 - from.z % 1 : from.z % 1);
-
-    var x = from.x.floor(), y = from.y.floor(), z = from.z.floor();
-    while (tMaxX <= 1.0 || tMaxY <= 1.0 || tMaxZ <= 1.0) {
-      if (tMaxX < tMaxY) {
-        if (tMaxX < tMaxZ) {
-          x += stepX;
-          tMaxX += tDeltaX;
-        } else {
-          z += stepZ;
-          tMaxZ += tDeltaZ;
-        }
-      } else if (tMaxY < tMaxZ) {
-        y += stepY;
-        tMaxY += tDeltaY;
-      } else {
-        z += stepZ;
-        tMaxZ += tDeltaZ;
-      }
-
-      final pos = DiscretePosition(x, y, z);
-      if (hasBlockAt(pos)) {
-        return (pos, chunkAt(worldPosToChunkPos(pos))[Chunk.worldPosToLocalPos(pos)]);
-      }
-    }
-
-    return null;
-  }
+  int blockAt(DiscretePosition pos) => chunkAt(worldPosToChunkPos(pos))[Chunk.worldPosToLocalPos(pos)];
 
   static DiscretePosition worldPosToChunkPos(DiscretePosition pos) =>
       DiscretePosition(pos.x >> 4, pos.y >> 4, pos.z >> 4);
@@ -176,8 +127,6 @@ class EmptyChunk implements Chunk {
   int _storageIndex(int x, int y, int z) => 0;
   @override
   Uint8List get blockStorage => Uint8List(0);
-  @override
-  bool hasBlockAt(DiscretePosition pos) => false;
 }
 
 // TODO optimize
@@ -237,9 +186,6 @@ class SliceChunk implements Chunk {
   int operator [](DiscretePosition pos) => blockStorage[_storageIndex(pos.x, pos.y, pos.z)];
   @override
   operator []=(DiscretePosition pos, int data) => blockStorage[_storageIndex(pos.x, pos.y, pos.z)] = data;
-
-  @override
-  bool hasBlockAt(DiscretePosition pos) => blockStorage[_storageIndex(pos.x, pos.y, pos.z)] != 0;
 }
 
 typedef ChunkGenWorkers = WorkerPool<DiscretePosition, Chunk>;

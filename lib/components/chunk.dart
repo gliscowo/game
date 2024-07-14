@@ -16,33 +16,31 @@ import '../obj.dart';
 import '../texture.dart';
 import '../vertex_descriptors.dart';
 import '../worker.dart';
+import 'game_world.dart';
 import 'transform.dart';
 
 part 'chunk.g.dart';
 
-class ChunkDataComponent extends Component {
+class ChunkData extends Component {
   final DiscretePosition pos;
-  ChunkDataComponent(this.pos);
+  ChunkData(this.pos);
 }
 
 enum ChunkMeshState { empty, building, ready }
 
-class ChunkMeshComponent extends Component {
-  final double spawnTime;
+class ChunkMesh extends Component {
+  ChunkMeshState state = ChunkMeshState.empty;
+  double lastBuildTimestamp = 0;
 
   MeshBuffer<TerrainVertexFunction>? buffer;
   bool needsRebuild = false;
-
-  ChunkMeshState state = ChunkMeshState.empty;
-
-  ChunkMeshComponent(this.spawnTime);
 }
 
 const renderDistance = (horizontal: 8, vertical: 6);
 
 class ChunkManager extends Manager {
   final Map<DiscretePosition, int> _chunkEntitiesByPosition = HashMap();
-  late final Mapper<ChunkDataComponent> _dataMapper;
+  late final Mapper<ChunkData> _dataMapper;
 
   @override
   void initialize() {
@@ -70,7 +68,7 @@ class ChunkManager extends Manager {
 
 @Generate(
   EntityProcessingSystem,
-  allOf: [Position, ChunkDataComponent, ChunkMeshComponent],
+  allOf: [Position, ChunkData, ChunkMesh],
   manager: [ChunkManager, TagManager],
 )
 class ChunkLoadingSystem extends _$ChunkLoadingSystem {
@@ -79,7 +77,7 @@ class ChunkLoadingSystem extends _$ChunkLoadingSystem {
   ChunkLoadingSystem(this._generators);
 
   @override
-  void processEntity(int entity, Position pos, ChunkDataComponent data, ChunkMeshComponent mesh) {
+  void processEntity(int entity, Position pos, ChunkData data, ChunkMesh mesh) {
     final cameraPos = positionMapper[tagManager.getEntity('active_camera')!].value;
 
     final maxHorizontal = renderDistance.horizontal + 1;
@@ -116,8 +114,8 @@ class ChunkLoadingSystem extends _$ChunkLoadingSystem {
         case ChunkStatus.loaded:
           world.createEntity([
             Position(x: 16.0 * chunkPos.x, y: 16.0 * chunkPos.y, z: 16.0 * chunkPos.z),
-            ChunkDataComponent(chunkPos),
-            ChunkMeshComponent(world.time(1)),
+            ChunkData(chunkPos),
+            ChunkMesh(),
           ]);
         default:
       }
@@ -128,8 +126,8 @@ class ChunkLoadingSystem extends _$ChunkLoadingSystem {
 typedef CompileWorkers = WorkerPool<(Obj, ChunkView), BufferWriter>;
 
 @Generate(
-  EntitySystem,
-  mapper: [Position, ChunkDataComponent, ChunkMeshComponent],
+  VoidEntitySystem,
+  mapper: [Position, ChunkData, ChunkMesh],
   manager: [TagManager, ChunkManager],
 )
 class ChunkRenderSystem extends _$ChunkRenderSystem {
@@ -140,10 +138,10 @@ class ChunkRenderSystem extends _$ChunkRenderSystem {
   final RenderContext _context;
   final CompileWorkers _compilers;
 
-  ChunkRenderSystem(this._context, this._compilers) : super(Aspect.empty());
+  ChunkRenderSystem(this._context, this._compilers);
 
   @override
-  void processEntities(Iterable<int> entities) {
+  void processSystem() {
     final program = _context.findProgram('terrain');
     final worldProjection = world.properties['world_projection'] as Matrix4;
     final viewMatrix = world.properties['view_matrix'] as Matrix4;
@@ -151,6 +149,8 @@ class ChunkRenderSystem extends _$ChunkRenderSystem {
     program.uniformMat4('uProjection', worldProjection);
     program.uniformMat4('uView', viewMatrix);
     program.uniformSampler('uTexture', cubeTexture, 0);
+    program.uniform1f('uFogStart', renderDistance.horizontal * 16 - 35);
+    program.uniform1f('uFogEnd', renderDistance.horizontal * 16 - 15);
     program.use();
 
     final chunkStorage = world.chunks;
@@ -176,13 +176,13 @@ class ChunkRenderSystem extends _$ChunkRenderSystem {
       _renderChunk(
         chunkStorage,
         positionMapper[entity],
-        chunkDataComponentMapper[entity],
-        chunkMeshComponentMapper[entity],
+        chunkDataMapper[entity],
+        chunkMeshMapper[entity],
       );
     }
   }
 
-  void _renderChunk(ChunkStorage chunks, Position pos, ChunkDataComponent data, ChunkMeshComponent mesh) {
+  void _renderChunk(ChunkStorage chunks, Position pos, ChunkData data, ChunkMesh mesh) {
     switch (mesh.state) {
       case ChunkMeshState.empty:
         if (chunks.statusAt(data.pos) != ChunkStatus.loaded) return;
@@ -198,15 +198,15 @@ class ChunkRenderSystem extends _$ChunkRenderSystem {
         final chunkBuffer = mesh.buffer!;
         if (chunkBuffer.isEmpty) return;
 
-        final offset = 1.0 - min((world.time(1) - mesh.spawnTime), 1.0);
-        chunkBuffer.program.uniform3vf('uOffset', pos.value - (Vector3(0, 16, 0) * offset.easeQuartic()));
+        final offset = 1.0 - min((world.time(1) - mesh.lastBuildTimestamp), 1);
+        chunkBuffer.program.uniform3vf('uOffset', pos.value - (Vector3(0, 64, 0) * offset.easeQuadratic()));
 
         chunkBuffer.drawAndCount();
       default:
     }
   }
 
-  bool _tryScheduleRebuild(ChunkStorage chunks, ChunkDataComponent data, ChunkMeshComponent mesh) {
+  bool _tryScheduleRebuild(ChunkStorage chunks, ChunkData data, ChunkMesh mesh) {
     if (_compilers.taskCount >= _compilers.size * 4) return false;
 
     _compilers.process((cube, chunks.maskChunkForCompilation(data.pos))).then((buffer) {
@@ -214,8 +214,12 @@ class ChunkRenderSystem extends _$ChunkRenderSystem {
 
       chunkBuffer.clear();
       chunkBuffer.buffer = buffer;
-
       chunkBuffer.upload();
+
+      if (mesh.state == ChunkMeshState.building) {
+        mesh.lastBuildTimestamp = world.time(renderGroup);
+      }
+
       mesh.state = ChunkMeshState.ready;
     });
     return true;
@@ -237,34 +241,34 @@ BufferWriter _compileChunk((Obj, ChunkView) command) {
     for (var y = 0; y < Chunk.size; y++) {
       for (var z = 0; z < Chunk.size; z++) {
         final pos = DiscretePosition(x, y, z);
-        if (!chunk.hasBlockAt(pos)) continue;
+        if (chunk[pos] == 0) continue;
 
         for (final Tri(:vertices, :normals, :uvs) in cube.tris) {
           final vtx1 = cube.vertices[vertices.$1 - 1],
               vtx2 = cube.vertices[vertices.$2 - 1],
               vtx3 = cube.vertices[vertices.$3 - 1];
 
-          if (chunks.hasBlockAt(pos.offset(x: -1)) && vtx1.x == -.5 && vtx2.x == -.5 && vtx3.x == -.5) {
+          if (chunks.blockAt(pos.offset(x: -1)) != 0 && vtx1.x == -.5 && vtx2.x == -.5 && vtx3.x == -.5) {
             continue;
           }
 
-          if (chunks.hasBlockAt(pos.offset(x: 1)) && vtx1.x == .5 && vtx2.x == .5 && vtx3.x == .5) {
+          if (chunks.blockAt(pos.offset(x: 1)) != 0 && vtx1.x == .5 && vtx2.x == .5 && vtx3.x == .5) {
             continue;
           }
 
-          if (chunks.hasBlockAt(pos.offset(z: -1)) && vtx1.z == -.5 && vtx2.z == -.5 && vtx3.z == -.5) {
+          if (chunks.blockAt(pos.offset(z: -1)) != 0 && vtx1.z == -.5 && vtx2.z == -.5 && vtx3.z == -.5) {
             continue;
           }
 
-          if (chunks.hasBlockAt(pos.offset(z: 1)) && vtx1.z == .5 && vtx2.z == .5 && vtx3.z == .5) {
+          if (chunks.blockAt(pos.offset(z: 1)) != 0 && vtx1.z == .5 && vtx2.z == .5 && vtx3.z == .5) {
             continue;
           }
 
-          if (chunks.hasBlockAt(pos.offset(y: -1)) && vtx1.y == -.5 && vtx2.y == -.5 && vtx3.y == -.5) {
+          if (chunks.blockAt(pos.offset(y: -1)) != 0 && vtx1.y == -.5 && vtx2.y == -.5 && vtx3.y == -.5) {
             continue;
           }
 
-          if (chunks.hasBlockAt(pos.offset(y: 1)) && vtx1.y == .5 && vtx2.y == .5 && vtx3.y == .5) {
+          if (chunks.blockAt(pos.offset(y: 1)) != 0 && vtx1.y == .5 && vtx2.y == .5 && vtx3.y == .5) {
             continue;
           }
 

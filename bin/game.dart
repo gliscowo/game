@@ -18,6 +18,7 @@ import 'package:game/components/transform.dart';
 import 'package:game/context.dart';
 import 'package:game/game.dart';
 import 'package:game/input.dart';
+import 'package:game/raycasting.dart';
 import 'package:game/text/text.dart';
 import 'package:game/text/text_renderer.dart';
 import 'package:game/texture.dart';
@@ -29,10 +30,6 @@ typedef GLFWerrorfun = Void Function(Int, Pointer<Char>);
 
 final Logger _logger = Logger('game');
 final Logger _glfwLogger = Logger('game.glfw');
-
-const tickRate = 64;
-const renderGroup = 1;
-const logicGroup = 2;
 
 Future<void> main(List<String> arguments) async {
   Logger.root.level = Level.INFO;
@@ -160,8 +157,7 @@ Future<void> main(List<String> arguments) async {
   });
 
   window.onKey.where((event) => event.key == glfwKeyR && event.action == glfwPress).listen((event) {
-    for (final mesh in world.componentManager
-        .getComponentsByType<ChunkMeshComponent>(ComponentType.getTypeFor(ChunkMeshComponent))) {
+    for (final mesh in world.componentManager.getComponentsByType<ChunkMesh>(ComponentType.getTypeFor(ChunkMesh))) {
       mesh.state = ChunkMeshState.empty;
     }
   });
@@ -191,15 +187,12 @@ Future<void> main(List<String> arguments) async {
     ..vertex(Vector3(15, 0, 0), 1, 0, Color.white)
     ..upload();
 
-  final fb = GlFramebuffer.trackingWindow(window);
+  final skyFb = GlFramebuffer.trackingWindow(window);
 
-  renderContext.findProgram('terrain').uniform1f('uFogStart', 220);
-  renderContext.findProgram('terrain').uniform1f('uFogEnd', 250);
-
-  renderContext.findProgram('terrain').uniformSampler('uSky', fb.colorAttachment, 1);
+  renderContext.findProgram('terrain').uniformSampler('uSky', skyFb.colorAttachment, 1);
   renderContext.findProgram('terrain').uniform2f('uSkySize', window.width.toDouble(), window.height.toDouble());
   window.onResize.listen((event) {
-    renderContext.findProgram('terrain').uniformSampler('uSky', fb.colorAttachment, 1);
+    renderContext.findProgram('terrain').uniformSampler('uSky', skyFb.colorAttachment, 1);
     renderContext.findProgram('terrain').uniform2f('uSkySize', event.width.toDouble(), event.height.toDouble());
   });
 
@@ -222,8 +215,6 @@ Future<void> main(List<String> arguments) async {
     gl.enable(glDepthTest);
 
     TriCount.triCount = 0;
-    fb.bind();
-    fb.clear(color: Color.ofArgb(0), depth: 1);
 
     var delta = glfw.getTime() - lastTime;
     lastTime = glfw.getTime();
@@ -238,23 +229,26 @@ Future<void> main(List<String> arguments) async {
       ticks++;
     }
 
+    skyFb.bind();
+    skyFb.clear(color: Color.ofArgb(0), depth: 1);
+
     skyBuffer.program.uniformMat4('uProjection', Matrix4.identity());
     skyBuffer.program.uniformMat4('uTransform', Matrix4.identity());
     skyBuffer.program.use();
     skyBuffer.draw();
 
-    fb.unbind();
+    skyFb.unbind();
     gl.blitNamedFramebuffer(
-      fb.fbo,
+      skyFb.fbo,
       0,
       0,
       0,
-      fb.width,
-      fb.height,
+      skyFb.width,
+      skyFb.height,
       0,
       0,
-      fb.width,
-      fb.height,
+      skyFb.width,
+      skyFb.height,
       glColorBufferBit | glDepthBufferBit,
       glNearest,
     );
@@ -268,28 +262,34 @@ Future<void> main(List<String> arguments) async {
     world.process(renderGroup);
 
     final cameraPos = posMapper[tags.getEntity('active_camera')!];
-    final raycastResult = world.chunks.raycast(cameraPos.value, cameraPos.value + camera.forward * 10);
+    final raycastResult = world.chunks.raycast(camera.viewRay(cameraPos.value), 10);
 
     if (raycastResult != null) {
-      final hitPos = raycastResult.$1.toVec3() + Vector3.all(.5);
+      final hitPos = raycastResult.blockPos.centerToVec3();
       world.createEntity([
         Position.fromVector(hitPos),
         DebugCubeRenderer(Color.white.copyWith(a: .35), scale: 1.005),
       ]);
+
+      world.createEntity([
+        Position.fromVector(hitPos + (raycastResult.side.offset.toVec3()..scale(.5))),
+        DebugCubeRenderer(Color.ofRgb(0xFF00FF), scale: .25),
+      ]);
+
+    world.createEntity([
+        Position.fromVector(raycastResult.pos),
+        DebugCubeRenderer(Color.ofRgb(0xFFFF00), scale: .15),
+    ]);
+    } else {
+    world.createEntity([
+      Position.fromVector(cameraPos.value + camera.forward * 10),
+        DebugCubeRenderer(Color.red, scale: .25),
+    ]);
     }
 
     gl.clear(glDepthBufferBit);
 
-    world.createEntity([
-      Position.fromVector(cameraPos.value),
-      DebugCubeRenderer(Color.blue, scale: .25),
-    ]);
-    world.createEntity([
-      Position.fromVector(cameraPos.value + camera.forward * 10),
-      DebugCubeRenderer(Color.green, scale: .25),
-    ]);
-
-    gl.clear(glDepthBufferBit);
+    // --- onto ui ---
 
     gl.blendFunc(glOneMinusDstColor, glOneMinusSrcColor);
 
@@ -298,7 +298,7 @@ Future<void> main(List<String> arguments) async {
         'uTransform',
         Matrix4.identity()
           ..scale(2.0, 2.0, 1.0)
-          ..translate(((window.width - 15) ~/ 4).toDouble(), ((window.height - 15) ~/ 4).toDouble(), 0));
+          ..translate(((window.width - 30) ~/ 4).toDouble(), ((window.height - 30) ~/ 4).toDouble(), 0));
     crosshairBuffer.program.uniformSampler('uTexture', crosshairTexture, 0);
     crosshairBuffer.program.use();
     crosshairBuffer.draw();
@@ -388,11 +388,11 @@ void _blockInteraction(
   MouseInputEvent event,
 ) {
   final cameraPos = posMapper[tags.getEntity('active_camera')!].value;
-  var cameraBlockPos =
-      world.chunks.raycast(cameraPos, cameraPos + cameraMapper[tags.getEntity('active_camera')!].forward * 10)?.$1;
+  final cameraHit = world.chunks.raycast(cameraMapper[tags.getEntity('active_camera')!].viewRay(cameraPos), 10);
+  if (cameraHit == null) return;
 
-  if (cameraBlockPos == null) return;
-  if (event.button == glfwMouseButtonRight) cameraBlockPos = cameraBlockPos.offset(y: 1);
+  var cameraBlockPos = cameraHit.blockPos;
+  if (event.button == glfwMouseButtonRight) cameraBlockPos = cameraBlockPos.move(cameraHit.side);
 
   final cameraChunkPos = ChunkView.worldPosToChunkPos(cameraBlockPos);
   final chunk = world.chunks.chunkAt(cameraChunkPos);
@@ -403,8 +403,8 @@ void _blockInteraction(
 
   for (final pos in [cameraChunkPos, ...AxisDirection.values.map((d) => cameraChunkPos + d.offset)]) {
     world.componentManager
-        .getComponent<ChunkMeshComponent>(
-            world.getManager<ChunkManager>().entityForChunk(pos)!, ComponentType.getTypeFor(ChunkMeshComponent))!
+        .getComponent<ChunkMesh>(
+            world.getManager<ChunkManager>().entityForChunk(pos)!, ComponentType.getTypeFor(ChunkMesh))!
         .needsRebuild = true;
   }
 }
