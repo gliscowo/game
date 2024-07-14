@@ -21,6 +21,18 @@ final VertexDescriptor<DebugEntityVertexFunction> debugEntityVertexDescriptor = 
   (buffer) => (pos) => buffer.float3(pos.x, pos.y, pos.z),
 );
 
+typedef DebugLinesVertexFunction = void Function(Vector3 pos, Color color);
+final VertexDescriptor<DebugLinesVertexFunction> debugLinesVertexDescriptor = VertexDescriptor(
+  (attribute) {
+    attribute('aPos', VertexElement.float, 3);
+    attribute('aColor', VertexElement.float, 4);
+  },
+  (buffer) => (pos, color) {
+    buffer.float3(pos.x, pos.y, pos.z);
+    buffer.float4(color.r, color.g, color.b, color.a);
+  },
+);
+
 typedef PosColorVertexFunction = void Function(Vector3 pos, Color color);
 final VertexDescriptor<PosColorVertexFunction> posColorVertexDescriptor = VertexDescriptor(
   (attribute) {

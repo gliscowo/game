@@ -60,3 +60,18 @@ abstract class _$DebugCubeVisualizerSystem extends EntitySystem {
   void processEntity(
       int entity, Position position, DebugCubeRenderer debugCubeRenderer);
 }
+
+abstract class _$DebugChunkGridRenderSystem extends EntitySystem {
+  late final Mapper<ChunkGridRenderer> chunkGridRendererMapper;
+  late final Mapper<Position> positionMapper;
+  late final TagManager tagManager;
+  _$DebugChunkGridRenderSystem()
+      : super(Aspect.empty()..allOf([ChunkGridRenderer]));
+  @override
+  void initialize() {
+    super.initialize();
+    chunkGridRendererMapper = Mapper<ChunkGridRenderer>(world);
+    positionMapper = Mapper<Position>(world);
+    tagManager = world.getManager<TagManager>();
+  }
+}

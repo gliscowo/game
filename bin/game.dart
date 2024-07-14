@@ -71,6 +71,7 @@ Future<void> main(List<String> arguments) async {
       vertFragProgram('text', 'text', 'text'),
       vertFragProgram('terrain', 'terrain', 'terrain'),
       vertFragProgram('debug_entity', 'debug_entity', 'debug_entity'),
+      vertFragProgram('debug_lines', 'debug_lines', 'debug_lines'),
     ]),
   );
 
@@ -132,6 +133,7 @@ Future<void> main(List<String> arguments) async {
   world.addSystem(ChunkLoadingSystem(chunkGenWorkers), group: renderGroup);
   world.addSystem(ChunkRenderSystem(renderContext, chunkCompilers), group: renderGroup);
   world.addSystem(DebugCubeVisualizerSystem(renderContext), group: renderGroup);
+  world.addSystem(DebugChunkGridRenderSystem(renderContext), group: renderGroup);
   world.addSystem(VelocitySystem(), group: logicGroup);
   world.addSystem(AirDragSystem(), group: logicGroup);
   world.chunks = ChunkStorage();
@@ -159,6 +161,15 @@ Future<void> main(List<String> arguments) async {
   window.onKey.where((event) => event.key == glfwKeyR && event.action == glfwPress).listen((event) {
     for (final mesh in world.componentManager.getComponentsByType<ChunkMesh>(ComponentType.getTypeFor(ChunkMesh))) {
       mesh.state = ChunkMeshState.empty;
+    }
+  });
+
+  window.onKey.where((event) => event.key == glfwKeyC && event.action == glfwPress).listen((event) {
+    final renderer = tags.getEntity('chunk-grid');
+    if (renderer == null) {
+      tags.register(world.createEntity([ChunkGridRenderer()]), 'chunk-grid');
+    } else {
+      world.deleteEntity(renderer);
     }
   });
 
@@ -276,15 +287,15 @@ Future<void> main(List<String> arguments) async {
         DebugCubeRenderer(Color.ofRgb(0xFF00FF), scale: .25),
       ]);
 
-    world.createEntity([
+      world.createEntity([
         Position.fromVector(raycastResult.pos),
         DebugCubeRenderer(Color.ofRgb(0xFFFF00), scale: .15),
-    ]);
+      ]);
     } else {
-    world.createEntity([
-      Position.fromVector(cameraPos.value + camera.forward * 10),
+      world.createEntity([
+        Position.fromVector(cameraPos.value + camera.forward * 10),
         DebugCubeRenderer(Color.red, scale: .25),
-    ]);
+      ]);
     }
 
     gl.clear(glDepthBufferBit);

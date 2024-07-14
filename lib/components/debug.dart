@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:dart_opengl/dart_opengl.dart';
 import 'package:dartemis/dartemis.dart';
 import 'package:diamond_gl/diamond_gl.dart';
 import 'package:vector_math/vector_math.dart';
@@ -77,5 +78,69 @@ class DebugCubeVisualizerSystem extends _$DebugCubeVisualizerSystem {
     _mesh.drawAndCount();
 
     world.deleteEntity(entity);
+  }
+}
+
+class ChunkGridRenderer extends Component {}
+
+@Generate(EntitySystem, allOf: [ChunkGridRenderer], mapper: [Position], manager: [TagManager])
+class DebugChunkGridRenderSystem extends _$DebugChunkGridRenderSystem {
+  final RenderContext _context;
+  MeshBuffer<DebugLinesVertexFunction>? _buffer;
+
+  DebugChunkGridRenderSystem(this._context);
+
+  @override
+  void processEntities(Iterable<int> entities) {
+    if (entities.isEmpty) return;
+
+    final mesh = _getMesh();
+
+    final cameraPos = positionMapper[tagManager.getEntity('active_camera')!].value;
+    final chunkOffset = cameraPos.clone()
+      ..scale(1 / 16)
+      ..floor()
+      ..scale(16);
+    final offsetMatrix = Matrix4.translation(chunkOffset);
+
+    mesh.program.uniformMat4('uProjection', world.properties['world_projection'] as Matrix4);
+    mesh.program.uniformMat4('uView', (world.properties['view_matrix'] as Matrix4) * offsetMatrix);
+    mesh.program.use();
+
+    gl.enable(glLineSmooth);
+    gl.lineWidth(2.5);
+    mesh.draw(mode: glLines);
+  }
+
+  MeshBuffer<DebugLinesVertexFunction> _getMesh() {
+    if (_buffer != null) return _buffer!;
+
+    _buffer = MeshBuffer(debugLinesVertexDescriptor, _context.findProgram('debug_lines'));
+    final mesh = _buffer!;
+    for (var x = -8; x < 8; x++) {
+      for (var y = -8; y < 8; y++) {
+        mesh
+          ..vertex(Vector3(x * 16.0, y * 16.0, -128), Color.white)
+          ..vertex(Vector3(x * 16.0, y * 16.0, 128), Color.white);
+      }
+    }
+
+    for (var x = -8; x < 8; x++) {
+      for (var z = -8; z < 8; z++) {
+        mesh
+          ..vertex(Vector3(x * 16.0, -128, z * 16.0), Color.white)
+          ..vertex(Vector3(x * 16.0, 128, z * 16.0), Color.white);
+      }
+    }
+
+    for (var y = -8; y < 8; y++) {
+      for (var z = -8; z < 8; z++) {
+        mesh
+          ..vertex(Vector3(-128, y * 16.0, z * 16.0), Color.white)
+          ..vertex(Vector3(128, y * 16.0, z * 16.0), Color.white);
+      }
+    }
+
+    return mesh..upload();
   }
 }
