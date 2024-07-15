@@ -102,16 +102,15 @@ class ColliderPhysicsSystem extends _$ColliderPhysicsSystem {
       return collides;
     }
 
-    final baseAabb = collider.toAabb(pos: pos.value);
-
     var dX = velocity.x * delta, dY = velocity.y * delta, dZ = velocity.z * delta;
-    final testAabb = Aabb3.copy(baseAabb)..stretch(Vector3(dX, dY, dZ));
+
+    final aabb = collider.toAabb(pos: pos.value);
+    final testAabb = Aabb3.copy(aabb)..stretch(Vector3(dX, dY, dZ));
     final blockBox = Aabb3();
 
     for (final blockPos in between(DiscretePosition.floor(testAabb.min), DiscretePosition.floor(testAabb.max))) {
       if (world.chunks.blockAt(blockPos) == 0) continue;
 
-      final aabb = Aabb3.copy(baseAabb);
       blockBox.min
         ..x = blockPos.x.toDouble()
         ..y = blockPos.y.toDouble()
