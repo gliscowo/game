@@ -93,7 +93,7 @@ Future<void> main(List<String> arguments) async {
 
   var vSync = false;
   glfw.swapInterval(0);
-  window.onKey.where((event) => event.key == glfwKeyV && event.action == glfwPress).listen((event) {
+  window.onKey.where((event) => event.key == glfwKeyL && event.action == glfwPress).listen((event) {
     glfw.swapInterval(vSync ? 0 : 1);
     vSync = !vSync;
   });
@@ -132,10 +132,10 @@ Future<void> main(List<String> arguments) async {
 
   world.addSystem(ChunkLoadingSystem(chunkGenWorkers), group: renderGroup);
   world.addSystem(ChunkRenderSystem(renderContext, chunkCompilers), group: renderGroup);
-  world.addSystem(DebugCubeVisualizerSystem(renderContext), group: renderGroup);
   world.addSystem(DebugChunkGridRenderSystem(renderContext), group: renderGroup);
-  world.addSystem(VelocitySystem(), group: logicGroup);
-  world.addSystem(AirDragSystem(), group: logicGroup);
+  world.addSystem(DebugCubeVisualizerSystem(renderContext), group: renderGroup);
+  world.addSystem(ColliderPhysicsSystem(), group: logicGroup);
+  world.addSystem(NoclipPhysicsSystem(), group: logicGroup);
   world.chunks = ChunkStorage();
 
   world.initialize();
@@ -146,6 +146,8 @@ Future<void> main(List<String> arguments) async {
       Velocity(),
       Orientation(pitch: -90 * degrees2Radians),
       CameraConfiguration(),
+      MovementInput(),
+      AabbCollider(.5, 2, .5)
     ]),
     'active_camera',
   );
@@ -170,6 +172,18 @@ Future<void> main(List<String> arguments) async {
       tags.register(world.createEntity([ChunkGridRenderer()]), 'chunk-grid');
     } else {
       world.deleteEntity(renderer);
+    }
+  });
+
+  final noclipMapper = Mapper<NoclipPhysics>(world);
+  window.onKey.where((event) => event.key == glfwKeyV && event.action == glfwPress).listen((event) {
+    final camera = tags.getEntity('active_camera');
+    if (noclipMapper.getSafe(camera!) != null) {
+      world.removeComponent<NoclipPhysics>(camera);
+      world.addComponent(camera, AabbCollider(.5, 2, .5));
+    } else {
+      world.removeComponent<AabbCollider>(camera);
+      world.addComponent(camera, NoclipPhysics());
     }
   });
 
@@ -279,7 +293,7 @@ Future<void> main(List<String> arguments) async {
       final hitPos = raycastResult.blockPos.centerToVec3();
       world.createEntity([
         Position.fromVector(hitPos),
-        DebugCubeRenderer(Color.white.copyWith(a: .35), scale: 1.005),
+        DebugCubeRenderer(Color.white.copyWith(a: .35), scale: 1.05),
       ]);
 
       world.createEntity([
@@ -293,7 +307,7 @@ Future<void> main(List<String> arguments) async {
       ]);
     } else {
       world.createEntity([
-        Position.fromVector(cameraPos.value + camera.forward * 10),
+        Position.fromVector(camera.eyePos(cameraPos.value) + camera.forward * 10),
         DebugCubeRenderer(Color.red, scale: .25),
       ]);
     }

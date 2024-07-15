@@ -1,4 +1,6 @@
-import 'dart:math';
+import 'dart:math' as math;
+
+import 'package:vector_math/vector_math.dart';
 
 import 'chunk_storage.dart';
 
@@ -36,13 +38,13 @@ abstract mixin class Rectangle {
     // my brain did not agree
     // glisco, 2022
 
-    int leftEdge = max(x, other.x);
-    int topEdge = max(y, other.y);
+    int leftEdge = math.max(x, other.x);
+    int topEdge = math.max(y, other.y);
 
-    int rightEdge = min(x + width, other.x + other.width);
-    int bottomEdge = min(y + height, other.y + other.height);
+    int rightEdge = math.min(x + width, other.x + other.width);
+    int bottomEdge = math.min(y + height, other.y + other.height);
 
-    return Rectangle(leftEdge, topEdge, max(rightEdge - leftEdge, 0), max(bottomEdge - topEdge, 0));
+    return Rectangle(leftEdge, topEdge, math.max(rightEdge - leftEdge, 0), math.max(bottomEdge - topEdge, 0));
   }
 
   factory Rectangle(int x, int y, int width, int height) => _Rectangle(x, y, width, height);
@@ -68,6 +70,28 @@ class Size {
 
   @override
   bool operator ==(Object other) => other is Size && other.width == width && other.height == height;
+}
+
+extension StretchAndMove on Aabb3 {
+  void stretch(Vector3 pos) {
+    if (pos.x < 0) {
+      min.x += pos.x;
+    } else if (pos.x > 0) {
+      max.x += pos.x;
+    }
+
+    if (pos.y < 0) {
+      min.y += pos.y;
+    } else if (pos.y > 0) {
+      max.y += pos.y;
+    }
+
+    if (pos.z < 0) {
+      min.z += pos.z;
+    } else if (pos.z > 0) {
+      max.z += pos.z;
+    }
+  }
 }
 
 Iterable<DiscretePosition> iterateOutwards(
@@ -108,6 +132,19 @@ Iterable<DiscretePosition> iterateOutwards(
       int t = dx;
       dx = -dz;
       dz = t;
+    }
+  }
+}
+
+Iterable<DiscretePosition> between(DiscretePosition from, DiscretePosition to) sync* {
+  final min = DiscretePosition(math.min(from.x, to.x), math.min(from.y, to.y), math.min(from.z, to.z));
+  final max = DiscretePosition(math.max(from.x, to.x), math.max(from.y, to.y), math.max(from.z, to.z));
+
+  for (var x = min.x; x <= max.x; x++) {
+    for (var y = min.y; y <= max.y; y++) {
+      for (var z = min.z; z <= max.z; z++) {
+        yield DiscretePosition(x, y, z);
+      }
     }
   }
 }

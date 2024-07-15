@@ -14,6 +14,7 @@ class DiscretePosition {
 
   const DiscretePosition(this.x, this.y, this.z);
   const DiscretePosition.origin() : this(0, 0, 0);
+  DiscretePosition.floor(Vector3 pos) : this(pos.x.floor(), pos.y.floor(), pos.z.floor());
 
   DiscretePosition offset({int x = 0, int y = 0, int z = 0}) => DiscretePosition(this.x + x, this.y + y, this.z + z);
   DiscretePosition move(AxisDirection direction, [int by = 1]) => offset(

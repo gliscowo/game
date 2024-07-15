@@ -5,6 +5,7 @@ import 'package:dartemis/dartemis.dart';
 import 'package:vector_math/vector_math.dart';
 
 import '../input.dart';
+import 'fysik.dart';
 import 'transform.dart';
 
 part 'camera.g.dart';
@@ -15,18 +16,19 @@ class CameraConfiguration extends Component {
 
   final Matrix4 _viewMatrix = Matrix4.zero();
   Matrix4 computeViewMatrix(Position pos) {
-    setViewMatrix(_viewMatrix, pos.value, pos.value + forward, Vector3(0, 1, 0));
+    setViewMatrix(_viewMatrix, eyePos(pos.value), eyePos(pos.value) + forward, Vector3(0, 1, 0));
     return _viewMatrix;
   }
 
-  Ray viewRay(Vector3 pos) => Ray.originDirection(pos, forward);
+  Vector3 eyePos(Vector3 pos) => pos + Vector3(0, 1.75, 0);
+  Ray viewRay(Vector3 pos) => Ray.originDirection(eyePos(pos), forward);
 }
 
 // class SetProjectionSystem extends _$SetProjectionSystem {}
 
 @Generate(
   EntityProcessingSystem,
-  allOf: [Velocity, Orientation, CameraConfiguration],
+  allOf: [MovementInput, Orientation, CameraConfiguration],
 )
 class CameraControlSystem extends _$CameraControlSystem {
   final InputProvider _input;
@@ -66,7 +68,7 @@ class CameraControlSystem extends _$CameraControlSystem {
   }
 
   @override
-  void processEntity(int entity, Velocity velocity, Orientation orientation, CameraConfiguration camera) {
+  void processEntity(int entity, MovementInput input, Orientation orientation, CameraConfiguration camera) {
     camera.speed *= 1 + .1 * _scrollSinceLastTick;
     orientation.yaw += _dxSinceLastTick * .001;
     orientation.pitch =
@@ -82,7 +84,7 @@ class CameraControlSystem extends _$CameraControlSystem {
 
     final inputVelocity = Vector3.zero();
     final forwardHorizontal = camera.forward.clone()
-      ..[1] = 0
+      ..y = 0
       ..normalize();
     if (_input.forwards) {
       inputVelocity.add(forwardHorizontal);
@@ -108,21 +110,10 @@ class CameraControlSystem extends _$CameraControlSystem {
       inputVelocity.add(Vector3(0, -1, 0));
     }
 
-    if (inputVelocity.length2 != 0) {
+    input.value.setFrom(
       inputVelocity
         ..normalize()
-        ..scale(camera.speed);
-
-      final resultingVelocity = velocity.value + inputVelocity;
-      final maxSpeed = max(inputVelocity.length2, velocity.value.length2);
-
-      if (resultingVelocity.length2 > maxSpeed) {
-        resultingVelocity
-          ..normalize()
-          ..scale(sqrt(maxSpeed));
-      }
-
-      velocity.value.setFrom(resultingVelocity);
-    }
+        ..scale(camera.speed),
+    );
   }
 }
