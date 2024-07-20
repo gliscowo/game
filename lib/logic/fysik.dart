@@ -4,7 +4,7 @@ import 'package:vector_math/vector_math.dart';
 import '../chunk_storage.dart';
 import '../game.dart';
 import '../math.dart';
-import 'transform.dart';
+import '../render/transform.dart';
 
 part 'fysik.g.dart';
 

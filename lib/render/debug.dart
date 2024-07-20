@@ -1,11 +1,11 @@
 import 'dart:io';
 
+import 'package:cutesy/cutesy.dart';
 import 'package:dart_opengl/dart_opengl.dart';
 import 'package:dartemis/dartemis.dart';
 import 'package:diamond_gl/diamond_gl.dart';
 import 'package:vector_math/vector_math.dart';
 
-import '../context.dart';
 import '../obj.dart';
 import '../vertex_descriptors.dart';
 import 'camera.dart';

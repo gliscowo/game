@@ -5,7 +5,7 @@ import 'package:dartemis/dartemis.dart';
 import 'package:vector_math/vector_math.dart';
 
 import '../input.dart';
-import 'fysik.dart';
+import '../logic/fysik.dart';
 import 'transform.dart';
 
 part 'camera.g.dart';

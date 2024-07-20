@@ -3,25 +3,23 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:args/args.dart';
+import 'package:cutesy/cutesy.dart';
 import 'package:dart_glfw/dart_glfw.dart';
 import 'package:dart_opengl/dart_opengl.dart';
 import 'package:dartemis/dartemis.dart';
 import 'package:diamond_gl/diamond_gl.dart';
 import 'package:ffi/ffi.dart';
 import 'package:game/chunk_storage.dart';
-import 'package:game/components/camera.dart';
-import 'package:game/components/chunk.dart';
-import 'package:game/components/debug.dart';
-import 'package:game/components/fysik.dart';
-import 'package:game/components/game_world.dart';
-import 'package:game/components/transform.dart';
-import 'package:game/context.dart';
 import 'package:game/game.dart';
 import 'package:game/input.dart';
+import 'package:game/logic/chunk.dart';
+import 'package:game/logic/fysik.dart';
 import 'package:game/raycasting.dart';
-import 'package:game/text/text.dart';
-import 'package:game/text/text_renderer.dart';
-import 'package:game/texture.dart';
+import 'package:game/render/camera.dart';
+import 'package:game/render/debug.dart';
+import 'package:game/render/game_world.dart';
+import 'package:game/render/transform.dart';
+import 'package:game/ui/texture_component.dart';
 import 'package:game/vertex_descriptors.dart';
 import 'package:logging/logging.dart';
 import 'package:vector_math/vector_math.dart';
@@ -66,18 +64,26 @@ Future<void> main(List<String> arguments) async {
   final renderContext = RenderContext(
     window,
     await Future.wait([
+      vertFragProgram('ui/text', 'ui/text', 'ui/text'),
+      vertFragProgram("ui/hsv", "ui/position", "ui/hsv"),
+      vertFragProgram("ui/pos_color", "ui/position", "ui/position"),
+      vertFragProgram("ui/rounded_rect", "ui/position", "ui/rounded"),
+      vertFragProgram("ui/rounded_rect_outline", "ui/position", "ui/rounded_outline"),
+      vertFragProgram("ui/circle", "ui/position", "ui/circle"),
+      vertFragProgram("ui/blur", "ui/position", "ui/blur"),
       vertFragProgram('gui_pos_color', 'gui_pos_color', 'gui_pos_color'),
-      vertFragProgram('gui_pos_uv_color', 'gui_pos_uv_color', 'gui_pos_uv_color'),
-      vertFragProgram('text', 'text', 'text'),
+      vertFragProgram('ui/pos_uv_color', 'ui/pos_uv_color', 'ui/pos_uv_color'),
       vertFragProgram('terrain', 'terrain', 'terrain'),
       vertFragProgram('debug_entity_instanced', 'debug_entity_instanced', 'debug_entity_instanced'),
       vertFragProgram('debug_lines', 'debug_lines', 'debug_lines'),
     ]),
   );
 
+  final uiContext = UiContext(renderContext);
+
   final cascadia = FontFamily('CascadiaCode', 30);
   final notoSans = FontFamily('NotoSans', 30);
-  final textRenderer = TextRenderer(renderContext, notoSans, {
+  final textRenderer = TextRenderer(uiContext, notoSans, {
     'Noto Sans': notoSans,
     'CascadiaCode': cascadia,
   });
@@ -201,16 +207,19 @@ Future<void> main(List<String> arguments) async {
     ..vertex(Vector3(1, 1, .9995), Color.ofRgb(0xFFF3C7))
     ..upload();
 
-  final crosshairTexture = loadTexture('crosshair');
-  final crosshairBuffer = MeshBuffer(posUvColorVertexDescriptor, renderContext.findProgram('gui_pos_uv_color'));
-  crosshairBuffer
-    ..vertex(Vector3(0, 0, 0), 0, 0, Color.white)
-    ..vertex(Vector3(0, 15, 0), 0, 1, Color.white)
-    ..vertex(Vector3(15, 0, 0), 1, 0, Color.white)
-    ..vertex(Vector3(0, 15, 0), 0, 1, Color.white)
-    ..vertex(Vector3(15, 15, 0), 1, 1, Color.white)
-    ..vertex(Vector3(15, 0, 0), 1, 0, Color.white)
-    ..upload();
+  // final crosshairTexture = loadTexture('crosshair');
+  // final crosshairBuffer = MeshBuffer(posUvColorVertexDescriptor, renderContext.findProgram('gui_pos_uv_color'));
+  // crosshairBuffer
+  //   ..vertex(Vector3(0, 0, 0), 0, 0, Color.white)
+  //   ..vertex(Vector3(0, 15, 0), 0, 1, Color.white)
+  //   ..vertex(Vector3(15, 0, 0), 1, 0, Color.white)
+  //   ..vertex(Vector3(0, 15, 0), 0, 1, Color.white)
+  //   ..vertex(Vector3(15, 15, 0), 1, 1, Color.white)
+  //   ..vertex(Vector3(15, 0, 0), 1, 0, Color.white)
+  //   ..upload();
+
+  final hudUi = setupHud(window, textRenderer);
+  final primitives = ImmediatePrimitiveRenderer(uiContext);
 
   final skyFb = GlFramebuffer.trackingWindow(window);
 
@@ -316,17 +325,9 @@ Future<void> main(List<String> arguments) async {
 
     // --- onto ui ---
 
-    gl.blendFunc(glOneMinusDstColor, glOneMinusSrcColor);
-
-    crosshairBuffer.program.uniformMat4('uProjection', uiProjection);
-    crosshairBuffer.program.uniformMat4(
-        'uTransform',
-        Matrix4.identity()
-          ..scale(2.0, 2.0, 1.0)
-          ..translate(((window.width - 30) ~/ 4).toDouble(), ((window.height - 30) ~/ 4).toDouble(), 0));
-    crosshairBuffer.program.uniformSampler('uTexture', crosshairTexture, 0);
-    crosshairBuffer.program.use();
-    crosshairBuffer.draw();
+    gl.depthFunc(glLequal);
+    hudUi.render(DrawContext(uiContext, primitives, uiProjection, textRenderer), delta);
+    gl.depthFunc(glLess);
 
     gl.blendFunc(glSrcAlpha, glOneMinusSrcAlpha);
 
@@ -405,6 +406,43 @@ Future<GlProgram> vertFragProgram(String name, String vert, String frag) async {
   return GlProgram(name, shaders);
 }
 
+UIController setupHud(Window window, TextRenderer textRenderer) {
+  final controller = UIController.ofWindow(
+    window,
+    textRenderer,
+    (horizontal, vertical) => FlowLayout.vertical()
+      ..horizontalSizing(horizontal)
+      ..verticalSizing(vertical),
+  );
+
+  final root = controller.root;
+  root.addChildren([
+    FlowLayout.vertical(children: [
+      Label(Text.string("bruh"))
+        ..size = 18
+        ..color(Color.black),
+      Label(Text.string("label"))
+        ..size = 18
+        ..color(Color.black)
+    ])
+      ..padding(Insets.all(10))
+      ..surface = Surfaces.flat(Color.black.copyWith(a: .5))
+      ..positioning(Positioning.absolute(0, 0)),
+    Metrics()..positioning(Positioning.relative(100, 100)),
+    FlowLayout.vertical(children: [
+      TextureWidget('crosshair', srcBlend: glOneMinusDstColor, dstBlend: glOneMinusSrcColor)..sizing(Sizing.fixed(30)),
+    ])
+      ..sizing(Sizing.fill())
+      ..verticalAlignment(VerticalAlignment.center)
+      ..horizontalAlignment(HorizontalAlignment.center)
+      ..positioning(Positioning.absolute(0, 0))
+  ]);
+
+  controller.inflateAndMount();
+
+  return controller;
+}
+
 void _blockInteraction(
   Mapper<Position> posMapper,
   Mapper<CameraConfiguration> cameraMapper,
@@ -432,4 +470,15 @@ void _blockInteraction(
             world.getManager<ChunkManager>().entityForChunk(pos)!, ComponentType.getTypeFor(ChunkMesh))!
         .needsRebuild = true;
   }
+}
+
+class UiContext implements RenderContext {
+  final RenderContext _inner;
+  UiContext(this._inner);
+
+  @override
+  GlProgram findProgram(String name) => _inner.findProgram('ui/$name');
+
+  @override
+  Window get window => _inner.window;
 }

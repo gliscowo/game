@@ -169,6 +169,15 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.0.3"
+  cutesy:
+    dependency: "direct main"
+    description:
+      path: "."
+      ref: "3144c4e"
+      resolved-ref: "3144c4eeedddf8660024f7c304279d78ee49c8e2"
+      url: "https://github.com/gliscowo/cutesy.git"
+    source: git
+    version: "0.1.0"
   dart_glfw:
     dependency: "direct main"
     description:

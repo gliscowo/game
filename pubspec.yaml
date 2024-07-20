@@ -28,6 +28,10 @@ dependencies:
     git: 
       url: 'https://github.com/gliscowo/diamond_gl.git'
       ref: afaff18
+  cutesy:
+    git:
+      url: 'https://github.com/gliscowo/cutesy.git'
+      ref: 3144c4e
   logging: ^1.1.0
   meta: ^1.9.0
   path: ^1.8.3

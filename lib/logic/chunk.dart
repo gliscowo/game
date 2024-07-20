@@ -3,21 +3,21 @@ import 'dart:collection';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:cutesy/cutesy.dart';
 import 'package:dartemis/dartemis.dart';
 import 'package:diamond_gl/diamond_gl.dart';
 import 'package:vector_math/vector_math.dart';
 
 import '../chunk_storage.dart';
-import '../context.dart';
 import '../easing.dart';
 import '../game.dart';
 import '../math.dart';
 import '../obj.dart';
+import '../render/game_world.dart';
+import '../render/transform.dart';
 import '../texture.dart';
 import '../vertex_descriptors.dart';
 import '../worker.dart';
-import 'game_world.dart';
-import 'transform.dart';
 
 part 'chunk.g.dart';
 
